@@ -175,3 +175,24 @@ Cause che invece possono dare differenze grandi:
 6. **Video diversi**: stessa ripresa ma non lo stesso file, o un frame rate diverso all'origine.
 
 Per confrontare due analisi: Dettagli tecnici → «Copia riepilogo» (versione, lettura, modello, calibrazione, risultato).
+
+### Fotogrammi sintetici (interpolazione) e registrazione 120/240 fps — v4.3
+**Domanda:** generare un fotogramma intermedio tra due reali migliora stacco e atterraggio?
+**Esperimento** (IMG_0181, 60 fps veri come riferimento; un fotogramma su due eliminato, quelli mancanti ricostruiti dai vicini con flusso ottico DIS bidirezionale
++ rimappatura; modello Heavy + specchio; due fasi di decimazione):
+
+| | errore landmark piedi nei fotogrammi mancanti (px) | volo, fase pari / dispari (rif. 0,530 s) | incertezza dichiarata |
+|---|---|---|---|
+| solo 30 fps | – | 0,531 / 0,525 s | ±2,2 cm |
+| + fotogrammi sintetici (immagine) | **3,51** | 0,535 / 0,522 s | ±1,1 cm (non reale) |
+| + landmark interpolati (media o cubica) | 3,10–3,11 | 0,533 / 0,527 s | ±1,1 cm |
+
+PSNR del fotogramma generato sui piedi: 38,5 dB, ma il modello vi trova i piedi peggio che interpolando direttamente le coordinate. Il fit sub-fotogramma già in uso
+estrae la temporizzazione tra due fotogrammi: generare immagini **non aggiunge informazione**, introduce artefatti e farebbe dichiarare una precisione non reale.
+**Non implementato.** Limiti dell'esperimento: un solo salto, interpolazione non appresa (flusso ottico classico); un modello appreso (RIFE/FILM) rende meglio le immagini
+ma non può aggiungere informazione sul contatto reale.
+
+**Registrazione 120/240 fps dall'app:** non possibile da un sito web. Le modalità Slo-mo dell'iPhone appartengono all'app Fotocamera; non esiste (fonti consultate) una
+API web per la registrazione ad alta velocità, e getUserMedia resta tipicamente a 30–60 fps. La fotocamera dell'app prova 240 → 120 → 60 fps entro il massimo dichiarato
+dal dispositivo, mostra quanto ottiene e rimanda alla guida Slo-mo. Per registrare 120/240 fps dentro l'app servirebbe un'app nativa (non realizzabile né verificabile qui).
+Non provato su iPhone reale: solo con dispositivi video finti da 30/60/120 fps in Chromium.

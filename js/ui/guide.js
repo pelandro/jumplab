@@ -90,23 +90,38 @@ const TESTS = {
 const li = (items) => h('ul', { class: 'tips' }, ...items.map((t) => h('li', { html: t })));
 const block = (title, items) => h('div', { style: { marginTop: '14px' } }, h('div', { class: 'small muted', style: { fontWeight: 800, letterSpacing: '.04em', textTransform: 'uppercase', marginBottom: '4px' } }, title), li(items));
 
+const SLOMO = {
+  title: 'Registrare a 120/240 fps',
+  what: 'Più fotogrammi veri = tempi di stacco e atterraggio più precisi. Con 240 fps un fotogramma vale 4 ms; con 60 fps 17 ms. <b>Un fotogramma generato al computer non aggiunge informazione</b> (l\'abbiamo misurato): servono fotogrammi reali.',
+  steps: [
+    '<b>iPhone:</b> Impostazioni → Fotocamera → <b>Registra slo-mo</b> → scegli 1080p a <b>240 fps</b> (o 120). Poi nell\'app <b>Fotocamera</b> scegli la modalità <b>Slo-mo</b>.',
+    'Alternativa sui modelli recenti: Impostazioni → Fotocamera → Registra video → <b>4K a 120 fps</b> (verifica sul tuo modello): è un video normale, non va calibrato. I file sono molto grandi.',
+    '<b>Android:</b> modalità «Slow motion» dell\'app Fotocamera (di solito 120 o 240 fps).',
+    'Telefono <b>fermo</b> su un supporto. Serve <b>molta luce</b>: a 240 fps ogni fotogramma è esposto pochissimo, con luce scarsa il video è scuro e rumoroso.',
+    'Poi in Jump Lab: <b>Importa video</b> e scegli il file. Nel selettore, se compare «Opzioni», imposta <b>Formato: Attuale</b>.',
+    '<b>Non condividere il file con app di messaggistica</b> prima di importarlo: spesso li riducono a 30 fps e perdono i fotogrammi veri. Usa AirDrop, iCloud, cavo, o importa direttamente dalla libreria.',
+    'Se il video risulta rallentato a 30 fps, l\'app lo riconosce e propone la calibrazione (×4, ×8…).',
+  ],
+  cam: 'Perché non registra direttamente l\'app? Le modalità 120/240 fps sono dell\'app Fotocamera e i siti web non le possono usare (di solito il tetto è 30–60 fps). Per registrarle dentro l\'app servirebbe un\'app nativa iOS.',
+  avoid: ['Importare un file già ricodificato a 30 fps.', 'Luce scarsa a 240 fps.'],
+};
+
 /** Apre la scheda del test (cmj, sj, dj, rebound, free, cmj_arms) o la guida generale ('general'). */
 export function openGuide(key = 'general') {
-  const t = TESTS[key];
+  const slomo = key === 'slomo';
+  const t = slomo ? SLOMO : TESTS[key];
   sheet((b, close) => {
-    b.append(
+    b.append(...[
       h('h2', { style: { fontSize: '21px', marginBottom: '6px' } }, t ? t.title : 'Come filmare'),
       t ? h('p', { class: 'muted', style: { margin: '0 0 12px', fontSize: '14px' }, html: t.what }) : null,
-      h('div', { html: svgSide }),
-      t ? block('Come eseguirlo', t.steps) : null,
-      t ? block('Ripresa consigliata', [t.cam]) : null,
-      ...(t ? [] : [h('div', { style: { marginTop: '12px' }, html: svgTop })]),
-      block(VIEW[0], VIEW[1]),
-      ...COMMON.map(([ti, items]) => block(ti, items)),
+      slomo ? null : h('div', { html: svgSide }),
+      t ? block(slomo ? 'Come fare' : 'Come eseguirlo', t.steps) : null,
+      t ? block(slomo ? 'Perché non registra direttamente l\'app?' : 'Ripresa consigliata', [slomo ? t.cam.replace(/^Perché non registra direttamente l'app\? /, '') : t.cam]) : null,
+      ...(t || slomo ? [] : [h('div', { style: { marginTop: '12px' }, html: svgTop })]),
+      ...(slomo ? [] : [block(VIEW[0], VIEW[1]), ...COMMON.map(([ti, items]) => block(ti, items))]),
       t ? block('Errori da evitare', t.avoid) : null,
       h('p', { class: 'small faint', style: { margin: '16px 0 0' }, html: 'Evidenze: 240 fps e atterraggio a gambe tese sono supportati dalla letteratura (validazione di My Jump, errore del metodo del tempo di volo). Distanza e altezza della camera sono buone pratiche: nessuno studio le ha validate. Se salti su <b>una gamba</b>, scegli Sinistra/Destra in Home: l\'app usa solo il piede che salta.' }),
       h('button', { class: 'btn primary block', style: { marginTop: '16px' }, onclick: close }, 'Ho capito'),
-    );
+    ].filter(Boolean));
   });
 }
-
