@@ -187,6 +187,15 @@ export const review = {
       add('FT:CT (volo / tempo al decollo)', fmt.num(j.ftct, 2), '', Number.isFinite(j.ftct) && TEST_TYPES[session.params.testType]?.needsDip);
       add('Potenza di picco (Sayers 1999, equazione SJ)', fmt.num(j.sayersW, 0), 'W', Number.isFinite(j.sayersW));
       add('Risoluzione ±1 frame', '±' + fmt.num(L(j.frameCm).v, 1), L(0).u);
+      if (Number.isFinite(j.uncCm) && Number.isFinite(j.frameCm) && !uncal(j)) {
+        // errore atteso diviso per origine: frame rate (quantizzazione, σ = 0,41·(±1 fotogramma)), rilevazione (modello/pixel, residuo), sistematico (postura)
+        const sFr = 0.408 * j.frameCm, sDet = Math.sqrt(Math.max(0, j.uncCm * j.uncCm - sFr * sFr));
+        const sys = Number.isFinite(j.heightCorrCm) ? Math.max(0, j.heightCm - j.heightCorrCm) : NaN;
+        m.push(h('div', { class: 'metric', style: { gridColumn: '1 / -1' } }, h('span', {}, 'Errore atteso (1σ) per origine'),
+          h('b', { class: 'num', style: { fontSize: '13px', lineHeight: 1.5 } },
+            `frame rate ±${fmt.num(L(sFr).v, 1)} · rilevazione ±${fmt.num(L(sDet).v, 1)} ${L(0).u}`, Number.isFinite(sys) && sys > 0.3 ? ` · sistematico: fino a +${fmt.num(L(sys).v, 1)} ${L(0).u} (postura)` : '')));
+      }
+      add('Stacco / atterraggio rilevati da', j.flow ? `${j.flow.src.to === 'pixel' ? 'pixel' : 'landmark'} / ${j.flow.src.td === 'pixel' ? 'pixel' : 'landmark'}` : 'landmark', '', !j.manual);
       add('Altezza corretta per postura', fmt.num(L(j.heightCorrCm).v, 1), L(0).u, Number.isFinite(j.heightCorrCm) && (j.issues || []).some((x) => x.code === 'landflex'));
       const notes = [];
       if (Number.isFinite(j.rsi)) notes.push('RSI = altezza (da tempo di volo) / contatto: confronta atleti diversi con cautela (sovrastima sotto 1,0, sottostima sopra 1,0 rispetto al calcolo da velocità di stacco).');
@@ -293,6 +302,7 @@ export const review = {
           h('div', { class: 'kv' }, h('span', {}, 'Risoluzione'), h('span', {}, `${m.width}×${m.height}${m.rotation ? ' · rot ' + m.rotation + '°' : ''}`)),
           h('div', { class: 'kv' }, h('span', {}, 'Modello'), h('span', {}, m.model ? `${m.model.model} · ${m.model.delegate}` : '—')),
           h('div', { class: 'kv' }, h('span', {}, 'Rifinitura Heavy + specchio'), h('span', {}, m.refined ? 'Sì (attorno a stacco e atterraggio)' : 'No')),
+          h('div', { class: 'kv' }, h('span', {}, 'Eventi dai pixel del piede'), h('span', {}, m.flow ? 'Sì' : 'No')),
           h('div', { class: 'kv' }, h('span', {}, 'Fotogrammi analizzati'), h('span', {}, session.windows.reduce((s, w) => s + w.frames.length, 0))),
           h('div', { class: 'kv' }, h('span', {}, 'Altezza atleta usata'), h('span', {}, `${session.params.heightCm || 175} cm`)),
           h('div', { class: 'kv' }, h('span', {}, 'Versione app'), h('span', {}, 'v' + VERSION)),
@@ -321,7 +331,7 @@ export const review = {
         c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
         thumb = c.toDataURL('image/jpeg', 0.7);
       } catch { /* miniatura facoltativa */ }
-      const pick = (j) => ({ to: j.to, td: j.td, T: j.T, heightCm: j.heightCm, contact: j.contact, rsi: j.rsi, rsiFlight: j.rsiFlight, rsiMod: j.rsiMod, dipCm: j.dipCm, v0: j.v0, boxCm: j.boxCm, forceN: j.forceN, powerW: j.powerW, sayersW: j.sayersW, confidence: j.confidence, manual: !!j.manual, uncCm: j.uncCm, heightCorrCm: j.heightCorrCm, refined: !!j.refined, ftct: j.ftct, forceRel: j.forceRel, powerRel: j.powerRel });
+      const pick = (j) => ({ to: j.to, td: j.td, T: j.T, heightCm: j.heightCm, contact: j.contact, rsi: j.rsi, rsiFlight: j.rsiFlight, rsiMod: j.rsiMod, dipCm: j.dipCm, v0: j.v0, boxCm: j.boxCm, forceN: j.forceN, powerW: j.powerW, sayersW: j.sayersW, confidence: j.confidence, manual: !!j.manual, uncCm: j.uncCm, heightCorrCm: j.heightCorrCm, refined: !!j.refined, ev: j.flow ? (j.flow.src.to === 'pixel' && j.flow.src.td === 'pixel' ? 'pixel' : 'misto') : 'landmark', ftct: j.ftct, forceRel: j.forceRel, powerRel: j.powerRel });
       const rec = {
         id: store.uid(), date: Date.now(), athleteId: ath.id, athleteName: ath.name, testType: session.params.testType, leg: S.leg, view: session.quality?.view || null, ver: VERSION,
         fileName: session.meta.name, fps: session.meta.fps, cal: session.cal, heightCm: session.params.heightCm,

@@ -57,6 +57,14 @@ Cloudflare Pages o Vercel come sito statico. Apri l'URL HTTPS su iPhone con Safa
 - Ripiego sul bacino quando i piedi non sono rilevati per brevi tratti.
 - Dettagli, misure e limiti in `VALIDAZIONE.md`.
 
+## Novità v4.4 (precisione di stacco e atterraggio)
+
+- **Eventi dai pixel del piede**: stacco e primo contatto si misurano seguendo i pixel dell'avampiede (template matching sub-pixel, fit a rampa quadratica), indipendentemente dal modello di postura. Su video reale a 120 fps i landmark sbagliavano di −87…+46 ms; sul tuo salto a 60 fps il volo coincide con TrackJump (32 fotogrammi).
+- Se l'evidenza dei pixel non è affidabile si ricade sui landmark e lo si segnala (confidenza ridotta, controllo manuale consigliato ad alta frequenza).
+- **Errore atteso per origine** (frame rate, rilevazione, sistematico) nei risultati; controllo di luce e contrasto sui piedi; analisi completa automatica nei video brevi se la scansione rapida non trova salti.
+- A 240 fps si analizza un fotogramma su due (120 effettivi): dimezza il tempo con perdita misurata di 1–2 ms.
+- Dettagli, ricerca e limiti in `VALIDAZIONE.md`.
+
 ## Novità v4.3
 
 - **Info per ogni test** (tasto «i» su ogni tipo): come registrare, vista frontale o laterale, frame rate, errori da evitare.

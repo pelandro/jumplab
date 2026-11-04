@@ -8,6 +8,7 @@ import { openVideo } from './video.js';
 import { pose, PoseEngine } from './pose.js';
 import { analyze, remeasure } from './jumps.js';
 import { assessRecording } from './quality.js';
+import { flowEvents } from './footflow.js';
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
 const FULL = { x: 0, y: 0, w: 1, h: 1 };
@@ -18,6 +19,22 @@ export function calibratedTime(frame, cal) {
   if (cal.mode === 'scale') return frame.t / cal.value;
   if (cal.mode === 'fps') return frame.idx / cal.value;
   return frame.t;
+}
+
+/** Luminanza media del fotogramma e contrasto (deviazione standard della luminanza) attorno ai piedi: servono a segnalare video bui o piedi poco distinguibili. */
+function sampleLight(ctx, w, h, kp, out) {
+  const px = ctx.getImageData(0, 0, w, h).data;
+  let sum = 0, cnt = 0;
+  for (let o = 0; o < px.length; o += 16) { sum += (px[o] * 299 + px[o + 1] * 587 + px[o + 2] * 114) / 1000; cnt++; }
+  out.luma.push(sum / cnt);
+  if (!kp) return;
+  let x0 = 1, x1 = 0, y0 = 1, y1 = 0;
+  for (const q of [27, 28, 29, 30, 31, 32]) if (kp[q * 3 + 2] > 0.4) { x0 = Math.min(x0, kp[q * 3]); x1 = Math.max(x1, kp[q * 3]); y0 = Math.min(y0, kp[q * 3 + 1]); y1 = Math.max(y1, kp[q * 3 + 1]); }
+  if (x1 <= x0 || y1 <= y0) return;
+  const xa = Math.max(0, Math.floor((x0 - 0.03) * w)), xb = Math.min(w - 1, Math.ceil((x1 + 0.03) * w)), ya = Math.max(0, Math.floor((y0 - 0.04) * h)), yb = Math.min(h - 1, Math.ceil((y1 + 0.02) * h));
+  let s1 = 0, s2 = 0, c = 0;
+  for (let y = ya; y <= yb; y++) for (let x = xa; x <= xb; x++) { const o = (y * w + x) * 4, l = (px[o] * 299 + px[o + 1] * 587 + px[o + 2] * 114) / 1000; s1 += l; s2 += l * l; c++; }
+  if (c > 30) out.foot.push(Math.sqrt(Math.max(0, s2 / c - (s1 / c) ** 2)));
 }
 
 function areaOf(kp) { const b = bboxOf([kp]); return b ? (b.x1 - b.x0) * (b.y1 - b.y0) : 0; }
@@ -88,6 +105,7 @@ export async function runAnalysis(file, opts, cb = {}) {
   // Una traccia per persona: ogni posa viene assegnata alla traccia più vicina; a fine scansione si segue la persona che salta
   // (maggiore escursione verticale del bacino), non quella più grande o più vicina alla camera.
   const tracks = [];
+  const light = { luma: [], foot: [] };
   let n = 0;
   stage('scan', 0.05, 'Cerco i salti nel video…');
   for await (const { idx, t, frame } of src.frames({ step, signal })) {
@@ -105,6 +123,7 @@ export async function runAnalysis(file, opts, cb = {}) {
     }
     // anteprima: la traccia più lunga finora
     const lead = tracks.reduce((a, b) => (!a || b.kps.size > a.kps.size ? b : a), null);
+    if (n % 6 === 0) sampleLight(ctx, cv.width, cv.height, lead?.kps.get(fi), light);
     coarse.idx.push(idx); coarse.t.push(t); coarse.kp.push(null);
     if (n++ % 2 === 0) {
       stage('scan', 0.05 + 0.3 * (idx / meta.frameCount), `Cerco i salti · ${Math.round((100 * idx) / meta.frameCount)}%`);
@@ -128,7 +147,8 @@ export async function runAnalysis(file, opts, cb = {}) {
   session.people = real.length || (tracks.length ? 1 : 0);
   if (session.people > 1) log(`Persone rilevate: ${session.people}. Seguita quella con più movimento verticale.`);
   session.coarse = coarse;
-  session.quality = assessRecording(meta, coarse, { aspect, tracks: session.people });
+  const med = (a) => (a.length ? [...a].sort((x, y) => x - y)[a.length >> 1] : NaN);
+  session.quality = assessRecording(meta, coarse, { aspect, tracks: session.people, luma: med(light.luma), footContrast: med(light.foot) });
   const found = coarse.kp.filter(Boolean).length;
   log(`Scansione: ${found}/${coarse.kp.length} fotogrammi con corpo rilevato`);
   if (found < Math.max(6, coarse.kp.length * 0.15)) {
@@ -145,7 +165,11 @@ export async function runAnalysis(file, opts, cb = {}) {
   const dur = meta.duration;
   if (opts.fullScan || !coarseRes.jumps.length) {
     if (!opts.fullScan) session.noCoarseJump = true;
-    if (opts.fullScan) wins.push({ t0: 0, t1: dur });
+    // falso negativo della scansione rapida (salto non rilevato a ~30 fps): su video brevi si analizza tutto a frequenza piena
+    if (opts.fullScan || dur <= 20) {
+      wins.push({ t0: 0, t1: dur });
+      if (!opts.fullScan) log('Nessun salto nella scansione rapida: analisi completa automatica (video breve).');
+    }
   } else {
     for (const j of coarseRes.jumps) {
       const T = j.td - j.to;
@@ -165,7 +189,7 @@ export async function runAnalysis(file, opts, cb = {}) {
   if (!wins.length) { session.scanOnly = true; src.dispose(); return session; }
 
   // ---------------- 2. passata ad alta precisione
-  const totalFrames = wins.reduce((s, w) => s + meta.fps * (w.t1 - w.t0), 0);
+  const totalFrames = wins.reduce((s, w) => s + (meta.fps * (w.t1 - w.t0)) / Math.max(1, Math.ceil(((w.t1 - w.t0) * meta.fps) / 500)), 0);
   let done = 0;
   const dcv = document.createElement('canvas'), dctx = dcv.getContext('2d', { willReadFrequently: true });
   for (const w of wins) {
@@ -176,6 +200,11 @@ export async function runAnalysis(file, opts, cb = {}) {
     dcv.width = Math.max(32, Math.round(cpx * s)); dcv.height = Math.max(32, Math.round(cpy * s));
     const win = { t0: w.t0, t1: w.t1, crop, frames: [], cw: dcv.width, ch: dcv.height };
     let miss = 0;
+    // Con 240 fps una finestra ha ~800 fotogrammi: oltre ~500 si analizza un fotogramma ogni `dstep` (240 → 120 fps effettivi). Misurato su video
+    // reale: dimezzare i fps (120 → 60) sposta il volo di 1–2 ms, quindi il costo di precisione è trascurabile e il tempo di calcolo si dimezza.
+    const dstep = Math.max(1, Math.ceil(((w.t1 - w.t0) * meta.fps) / 500));
+    if (dstep > 1) log(`Finestra di ${Math.round((w.t1 - w.t0) * meta.fps)} fotogrammi: analizzo 1 ogni ${dstep} (${(meta.fps / dstep).toFixed(0)} fps effettivi)`);
+    meta.denseStep = Math.max(meta.denseStep || 1, dstep);
     // più persone: si segue l'atleta per continuità di posizione (coordinate del ritaglio) invece di prendere la posa più grande
     const multi = (session.people || 1) > 1;
     let prevC = null;
@@ -183,7 +212,7 @@ export async function runAnalysis(file, opts, cb = {}) {
       const near = coarse.kp.map((k, i) => ({ k, d: Math.abs(coarse.t[i] - w.t0) })).filter((x) => x.k).sort((a, b) => a.d - b.d)[0];
       if (near) { const c = centerOf(near.k); prevC = [(c[0] - crop.x) / crop.w, (c[1] - crop.y) / crop.h]; }
     }
-    for await (const { idx, t, frame } of src.frames({ from: w.t0, to: w.t1, signal })) {
+    for await (const { idx, t, frame } of src.frames({ from: w.t0, to: w.t1, step: dstep, signal })) {
       aborted();
       dctx.imageSmoothingQuality = 'high';
       src.drawCrop(frame, dctx, crop, dcv.width, dcv.height);
@@ -220,6 +249,10 @@ export async function runAnalysis(file, opts, cb = {}) {
       // senza rifinitura il risultato resta valido ma con ~1–2 cm di incertezza in più (misurato tra Full e Heavy): lo si dice
       session.quality?.items.push({ level: 'info', code: 'refine', text: `La rifinitura con il modello Heavy non è stata eseguita (${String(e.message || e).slice(0, 80)}): il risultato può differire di 1–2 cm da quello di un dispositivo che la esegue.` });
     }
+  }
+  if (opts.refine !== false && session.jumps.some((j) => !j.manual)) {
+    try { await flowRefine(session, { stage }); }
+    catch (e) { if (e.name === 'AbortError') throw e; session.flowError = String(e.stack || e.message || e).slice(0, 400); log('Eventi dai pixel saltati: ' + (e.message || e)); }
   }
   stage('done', 1, 'Completato');
   return session;
@@ -289,6 +322,103 @@ async function refineEvents(session, opts, cb, aborted) {
   applyRefineInfo(session);
 }
 
+// posizione frazionaria (indice) di un tempo sulla linea dei fotogrammi, e inverso: permettono di conservare un evento anche se cambia la calibrazione
+function posOf(tc, t) {
+  if (!tc.length) return NaN;
+  if (t <= tc[0]) return 0;
+  for (let i = 0; i < tc.length - 1; i++) if (t < tc[i + 1]) return i + (t - tc[i]) / (tc[i + 1] - tc[i]);
+  return tc.length - 1;
+}
+function timeAt(tc, pos) {
+  const i = Math.max(0, Math.min(tc.length - 2, Math.floor(pos)));
+  return tc[i] + (pos - i) * (tc[i + 1] - tc[i]);
+}
+
+/**
+ * Stacco e atterraggio dai PIXEL del piede (footflow.js) sui ritagli già salvati. Si usano al posto dei landmark quando il tracciamento è
+ * affidabile e non si discosta di più di 120 ms: verificato su video reale a 120 fps, dove i landmark erano in ritardo di 25 ms allo
+ * stacco e 46 ms al primo contatto (o in anticipo di 87 ms con Heavy + specchio).
+ */
+async function flowRefine(session, cb) {
+  const cv = document.createElement('canvas'), ctx = cv.getContext('2d', { willReadFrequently: true });
+  session.flowInfo = session.windows.map(() => []);
+  const leg = session.params?.leg;
+  const jumps = session.jumps.filter((j) => !j.manual);
+  cb.stage('refine', 0.955, 'Tracciamento dei pixel del piede…');
+  for (const j of jumps) {
+    const win = session.windows[j.win];
+    const tcAll = win.frames.map((f) => f.tc);
+    let iA = tcAll.findIndex((t) => t >= j.to - 0.30), iB = -1;
+    for (let i = 0; i < tcAll.length; i++) if (tcAll[i] <= j.td + 0.26) iB = i;
+    if (iA < 0 || iB - iA < 12) { (session.flowSkip ||= []).push({ iA, iB, n: tcAll.length, to: j.to, td: j.td, tc0: tcAll[0], tc1: tcAll[tcAll.length - 1] }); continue; }
+    cv.width = win.cw; cv.height = win.ch;
+    const gray = [], kp = [], tc = [];
+    for (let i = iA; i <= iB; i++) {
+      const f = win.frames[i];
+      const bmp = await createImageBitmap(f.blob);
+      ctx.drawImage(bmp, 0, 0, cv.width, cv.height); bmp.close?.();
+      const px = ctx.getImageData(0, 0, cv.width, cv.height).data;
+      const g = new Uint8Array(cv.width * cv.height);
+      for (let q = 0, o = 0; q < g.length; q++, o += 4) g[q] = (px[o] * 299 + px[o + 1] * 587 + px[o + 2] * 114) / 1000;
+      gray.push(g); tc.push(f.tc); kp.push(f.kp ? remapToCrop(f.kp, win.crop) : null);
+    }
+    const r = flowEvents(gray, cv.width, cv.height, tc, kp, { to: j.to, td: j.td }, { leg: leg === 'left' || leg === 'right' ? leg : undefined });
+    session.flowInfo[j.win].push({
+      leg: leg || 'both', posToLm: posOf(tcAll, j.to), posTdLm: posOf(tcAll, j.td),
+      posTo: r.to != null ? posOf(tcAll, r.to) : null, posTd: r.td != null ? posOf(tcAll, r.td) : null, qTo: r.qTo, qTd: r.qTd,
+      dbg: { n: gray.length, w: cv.width, h: cv.height, d: r.detail, kp0: kp[0] ? Array.from(kp[0].slice(93, 99)).map((v) => +v.toFixed(3)) : null },
+    });
+    await tick();
+  }
+  session.meta.flow = session.flowInfo.some((w) => w.some((x) => x.posTo != null || x.posTd != null));
+  reanalyze(session, {});
+}
+
+/** Senza evidenza dai pixel a frame rate alto i landmark possono anticipare lo stacco e ritardare il contatto (visto fino a 87 ms e 46 ms a 120 fps). */
+function noPixel(j, dt) {
+  if (dt > 0.0105 || j.manual) return;
+  j.issues.push({ level: 'warn', code: 'lmonly', text: 'Stacco e atterraggio sono stati stimati solo dai landmark del modello (il tracciamento dei pixel del piede non era affidabile: poco contrasto, piede fuori ritaglio o movimento). Ad alto frame rate i landmark possono sbagliare di decine di ms: controlla i due fotogrammi a mano.' });
+  j.score = Math.max(0, j.score - 0.15);
+  j.confidence = j.score >= 0.75 ? 'alta' : j.score >= 0.5 ? 'media' : 'bassa';
+}
+
+/** Applica gli eventi dai pixel salvati (se plausibili) ai salti calcolati dai landmark. */
+function applyFlowInfo(session) {
+  if (!session.flowInfo) return;
+  const MAXD = 0.12;
+  session.results.forEach((res, wi) => {
+    const win = session.windows[wi], tc = win.frames.map((f) => f.tc);
+    const infos = session.flowInfo[wi] || [];
+    const dtc = res.sig?.dt || 1 / 30;
+    for (const j of [...res.jumps]) {
+      if (j.manual) continue;
+      const pTo = posOf(tc, j.to), pTd = posOf(tc, j.td);
+      const info = infos.find((x) => x.leg === (session.params?.leg || 'both') && Math.abs(x.posToLm - pTo) <= 2.5 && Math.abs(x.posTdLm - pTd) <= 2.5);
+      if (!info) { noPixel(j, dtc); continue; }
+      let to = j.to, td = j.td, srcTo = 'landmark', srcTd = 'landmark';
+      const toPx = info.posTo != null ? timeAt(tc, info.posTo) : null, tdPx = info.posTd != null ? timeAt(tc, info.posTd) : null;
+      if (toPx != null && Math.abs(toPx - j.to) <= MAXD) { to = toPx; srcTo = 'pixel'; }
+      if (tdPx != null && Math.abs(tdPx - j.td) <= MAXD) { td = tdPx; srcTd = 'pixel'; }
+      if (srcTo === 'landmark' && srcTd === 'landmark') { noPixel(j, dtc); continue; }
+      const toLm = j.to, tdLm = j.td;
+      editJump(session, j, to, td, false);
+      // incertezza: floor di ±0,35 fotogrammi per evento + metà della discordanza tra i due stimatori e dispersione tra i piedi
+      const sp = (q) => (q ? q.spread / 2 : 0);
+      j.uncT = Math.hypot(Math.SQRT2 * 0.35 * dtc, 0.5 * (to - toLm), 0.5 * (td - tdLm), sp(info.qTo), sp(info.qTd));
+      j.uncCm = ((9.80665 * j.T * j.uncT) / 4) * 100;
+      j.flow = { toLm, tdLm, dTo: to - toLm, dTd: td - tdLm, src: { to: srcTo, td: srcTd } };
+      const big = Math.max(Math.abs(to - toLm), Math.abs(td - tdLm));
+      if (big > Math.max(0.03, 3 * dtc)) {
+        j.issues.push({ level: 'info', code: 'flowdiff', text: `Il tracciamento dei pixel del piede e i landmark del modello differiscono (stacco ${((to - toLm) * 1000).toFixed(0)} ms, atterraggio ${((td - tdLm) * 1000).toFixed(0)} ms): usati i pixel, che seguono il piede reale.` });
+        // gli stimatori non concordano: si abbassa un po' la confidenza (la correzione, anche se plausibile, non è confermata da un secondo metodo)
+        j.score = Math.max(0, j.score - 0.1);
+        j.confidence = j.score >= 0.75 ? 'alta' : j.score >= 0.5 ? 'media' : 'bassa';
+      }
+      j.flow.agree = big <= Math.max(0.03, 3 * dtc);
+    }
+  });
+}
+
 /** Aggiunge all'incertezza di ogni salto lo spostamento dovuto alla rifinitura e lo segna come rifinito. */
 function applyRefineInfo(session) {
   if (!session.refineInfo) return;
@@ -338,6 +468,8 @@ export function reanalyze(session, p = {}) {
     session.results.push(res);
   }
   session.jumps = session.results.flatMap((r) => r.jumps);
+  applyFlowInfo(session);
+  session.jumps = session.results.flatMap((r) => r.jumps);
   applyRefineInfo(session);
   return session;
 }
@@ -349,14 +481,14 @@ function paramsOf(session) {
 }
 
 /** Correzione manuale di stacco/atterraggio: ricalcola metriche e il contatto del salto successivo. */
-export function editJump(session, jump, newTo, newTd) {
+export function editJump(session, jump, newTo, newTd, mark = true) {
   const res = session.results[jump.win];
   const params = paramsOf(session);
   const oldTd = jump.td;
   const contact = jump.contactStart != null ? newTo - jump.contactStart : null;
   const nj = remeasure(res, newTo, newTd, params, contact);
   const keep = { id: jump.id, win: jump.win, contactStart: jump.contactStart, contactSource: jump.contactSource, excluded: jump.excluded, ground: nj.ground };
-  Object.assign(jump, nj, keep, { manual: true });
+  Object.assign(jump, nj, keep, { manual: mark });
   const next = res.jumps.find((j) => j !== jump && j.contactStart != null && Math.abs(j.contactStart - oldTd) < 1e-6);
   if (next) {
     next.contactStart = newTd;

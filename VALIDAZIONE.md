@@ -196,3 +196,59 @@ ma non può aggiungere informazione sul contatto reale.
 API web per la registrazione ad alta velocità, e getUserMedia resta tipicamente a 30–60 fps. La fotocamera dell'app prova 240 → 120 → 60 fps entro il massimo dichiarato
 dal dispositivo, mostra quanto ottiene e rimanda alla guida Slo-mo. Per registrare 120/240 fps dentro l'app servirebbe un'app nativa (non realizzabile né verificabile qui).
 Non provato su iPhone reale: solo con dispositivi video finti da 30/60/120 fps in Chromium.
+
+## v4.4 — stacco e atterraggio dai pixel del piede, alta frequenza
+
+### Ricerca (sintesi delle decisioni)
+| Tecnologia | Esito |
+|---|---|
+| **BlazePose (MediaPipe)** | Resta il modello di postura: unico con talloni e punte utilizzabile in browser senza dipendenze. Limite scoperto: i landmark del piede **non coincidono con i pixel del piede** (vedi sotto). |
+| RTMPose/RTMW (133 punti, 6 sul piede) via ONNX Runtime Web | Fattibile in browser (WebGPU) ma senza benchmark pubblici sulla precisione dei piedi e con pesi non raggiungibili da qui: non adottato. |
+| Apple Vision (2D: caviglie, niente tallone/punta; 3D iOS 17: 17 giunti) / Core ML | Solo app nativa, senza punti del piede: non utile per un'app web. |
+| YOLO-pose | 17 punti COCO senza piedi (e licenza AGPL per YOLO11): scartato. |
+| Segmentazione del pavimento | Non necessaria: il tracciamento dei pixel del piede dà il contatto senza modello del suolo. |
+| Interpolazione di fotogrammi | Misurata e scartata (v4.3): non aggiunge informazione. |
+| **Tracciamento dei pixel del piede (template matching sub-pixel + fit a rampa quadratica)** | **Adottato** (nessuna dipendenza, ~100 ms per salto). |
+Riferimenti: Evans et al. 2018 (contatti entro 1,5 fotogrammi a 180 fps rispetto a pedana); letteratura sul tempo di volo (sovrastima con atterraggio flesso).
+
+### Il problema trovato (video reale a 120 fps, IMG_0180 con calibrazione ×4)
+Verifica visiva fotogramma per fotogramma: le punte bianche restano ferme fino a ~1,34 s e toccano terra a ~1,978 s.
+
+| Stimatore | Stacco | Atterraggio | Volo | Altezza |
+|---|---|---|---|---|
+| Landmark Full | 1,368 s (+25 ms) | 2,024 s (+46 ms) | 0,656 s | 52,7 cm |
+| Landmark Heavy + specchio | **1,256 s (−87 ms)** | 2,026 s | **0,771 s** | **72,8 cm** |
+| **Pixel del piede** | 1,347 s | 1,975 s | **0,627–0,630 s** | **48,3–48,7 cm** |
+A 60/30 fps l'errore dei landmark si nasconde (non si risolve la fase di rotolamento del piede); ad alta frequenza emerge. Cause: la punta del modello segue la gamba mentre il tallone si alza (30 px di deriva in 150 ms senza che il piede si muova) e all'atterraggio si assesta quando il tallone si abbassa.
+
+### Come funziona il nuovo stimatore (`js/engine/footflow.js`)
+1. Template matching (correlazione normalizzata a media zero, sub-pixel con parabola) di una zona attorno alla punta di ciascun piede, da un fotogramma al successivo, sui ritagli già salvati.
+2. Si integra lo spostamento verticale e si fitta «suolo inclinato → rampa quadratica» (`hingeQuad`): una rampa retta anticipa lo stacco di b·L²/6 ÷ pendenza (≈6 ms) perché il moto è parabolico.
+3. Stacco = ultimo piede che parte; atterraggio = primo contatto, **solo avampiede** (le zone del tallone danno falsi plateau: verificato guardando i fotogrammi del salto a 60 fps).
+4. Controlli: correlazione media > 0,7; almeno 3 fotogrammi tracciati prima e dopo l'evento; residuo del fit piccolo; non sotto 25 fps; plausibilità (±120 ms dai landmark). Se non passano, si usano i landmark e si segnala.
+5. Incertezza: floor ±0,35 fotogrammi per evento + metà della discordanza pixel/landmark + dispersione tra i due piedi. Confidenza ridotta se gli stimatori discordano o se ad alta frequenza restano solo i landmark.
+
+### Verifiche eseguite
+| Test | Risultato |
+|---|---|
+| Scene sintetiche con verità nota (texture, rumore σ≈3/255, landmark iniziali ±10 px, stima iniziale sbagliata fino a 50 ms, 30/60/120/240 fps, 24 salti) | 48/48 eventi trovati; errore stacco **≤ 0,7 ms**, atterraggio **2–4 ms** |
+| Zona senza texture | rifiuta (nessun evento) |
+| 20 fps | non usato |
+| Tuo salto a 60 fps (IMG_0181) | stacco 2,6406 s, atterraggio 3,1740 s → volo **0,5333 s = 32 fotogrammi: identico a TrackJump** (34,9 cm) |
+| Video a 120 fps decimato (120 → 60 → 40 → 30 fps equivalenti) | volo cambia al massimo di **5,7 ms** (i landmark: fino a 213 ms) |
+| Stesso salto a 60 fps decimato a 30 fps | cambia di 1–2 ms |
+| Stima iniziale volutamente sbagliata di 90 ms | stesso risultato |
+| Suite sintetica esistente (landmark, 49 scenari) | nessuna regressione |
+
+### Alta frequenza (120/240 fps)
+- Limite di 500 fotogrammi per finestra di analisi: a 240 fps si analizza 1 fotogramma su 2 (120 effettivi). Misurato: 120 → 60 fps sposta il volo di 1–2 ms. Dimezza il tempo di calcolo.
+- Gli errori dei landmark a 120 fps sono maggiori che a 30–60 fps: senza evidenza dai pixel l'app avvisa (confidenza ridotta, invito al controllo manuale).
+
+### Limiti (non dichiarare di più)
+- **Nessuna verità da pedana.** I riferimenti sono: due eventi controllati a occhio su fotogrammi a 120 fps (±1 fotogramma ≈ 8 ms; una volta ho letto male un atterraggio a occhio, quindi va preso con cautela) e il conteggio di fotogrammi di TrackJump su un salto a 60 fps.
+- Un solo atleta, due video veri; il video «a 120 fps» è uno slow-mo esportato a 30 fps con fattore ×4 stimato dalla fisica, non letto dal file.
+- **Nessun video a 240 fps reale**: il percorso del codice è stato provato con fotogrammi duplicati, non con dati reali.
+- Presuppone atterraggio sull'avampiede. Con atterraggio a tallone il contatto sulle punte arriva dopo (la differenza con i landmark, se grande, è segnalata).
+- Le zone sono centrate sui landmark iniziali; scarpe scure su pavimento scuro a bassa risoluzione possono non dare un tracciamento affidabile (in quel caso si ricade sui landmark).
+- Non provato su iPhone/iPad: tempi di calcolo e supporto codec da misurare.
+- Il movimento della camera non è compensato (il tracciamento misura il movimento nell'immagine): usare un supporto fermo.

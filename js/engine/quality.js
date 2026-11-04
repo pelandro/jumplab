@@ -92,6 +92,13 @@ export function assessRecording(meta, coarse, extra = {}) {
     extra.footVis = footVis; extra.sizeFrac = sizeFrac;
   }
 
+  // luce e contrasto sui piedi (campionati nella scansione)
+  if (Number.isFinite(extra.luma)) {
+    if (extra.luma < 40) add('warn', 'light', `Video molto scuro (luminanza media ${Math.round(extra.luma)}/255): i piedi si distinguono male. Aggiungi luce, soprattutto in slow-motion.`);
+    else if (extra.luma > 215) add('warn', 'light', `Video sovraesposto (luminanza media ${Math.round(extra.luma)}/255): evita il controluce e le superfici troppo chiare.`);
+  }
+  if (Number.isFinite(extra.footContrast) && extra.footContrast < 10) add('warn', 'contrast', `Scarso contrasto attorno ai piedi (variazione di luminanza ${extra.footContrast.toFixed(0)}): scarpe e pavimento si confondono, stacco e atterraggio saranno meno precisi.`);
+
   if ((extra.tracks || 1) > 1) add('info', 'people', `Rilevate ${extra.tracks} persone: è stata seguita quella che salta. Meglio una sola persona nell'inquadratura.`);
   const worst = items.some((i) => i.level === 'bad') ? 'bad' : items.some((i) => i.level === 'warn') ? 'warn' : 'ok';
   return { items, level: worst, view: extra.view?.view || null, ratio: extra.view?.ratio ?? NaN, fps, footVis: extra.footVis ?? NaN, sizeFrac: extra.sizeFrac ?? NaN, detected, people: extra.tracks || 1 };

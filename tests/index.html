@@ -14,7 +14,9 @@ rilevamento e misura, <b>non</b> la qualità del modello di postura su video rea
 <script type="module">
 import { analyze, summarizeSeries, heightFromFlight, samozino, sayersPeakPower, rsiOf } from '../js/engine/jumps.js';
 import { detectView, assessRecording } from '../js/engine/quality.js';
+import { flowEvents } from '../js/engine/footflow.js';
 import { buildScenario, renderTrack, rng } from './sim.js';
+import { makeFlowScene, FLOW } from './flowsim.js';
 
 const g = 9.80665;
 const rows = [];
@@ -189,10 +191,49 @@ for (const [nm, fn, o] of gCases) for (const fps of [30, 60, 240]) {
   const ok = o.expectFail ? !good : good; if (!ok) totalFail++;
   gRows.push(`<tr><td>${nm}</td><td>${fps}</td><td>${found}/${tot}</td><td>${Number.isFinite(mean) ? mean.toFixed(1) : '—'}</td><td class="${ok ? 'ok' : 'bad'}">${ok ? 'OK' : 'KO'}</td></tr>`);
 }
+
+// ---- Eventi dai PIXEL del piede (footflow): fotogrammi sintetici con verità nota ----
+// Due "piedi" con texture che seguono una traiettoria balistica (suolo fermo, volo parabolico, atterraggio con piccolo assestamento).
+// Landmark iniziali imprecisi (±10 px) e stima iniziale degli eventi sbagliata fino a 50 ms; rumore gaussiano σ=3/255.
+const flowRows = [];
+{
+  const Wd = FLOW.W, Hd = FLOW.H;
+  const mkFlow = (fps, T, seed, flat = false) => makeFlowScene(rng, fps, T, seed, flat);
+  for (const fps of [30, 60, 120, 240]) {
+    const eTo = [], eTd = []; let miss = 0, tot = 0;
+    for (const [T, seed] of [[0.45, 1], [0.55, 2], [0.65, 3], [0.55, 4]]) {
+      const d = mkFlow(fps, T, seed * 31 + fps); const r = flowEvents(d.gray, Wd, Hd, d.tc, d.kp, d.rough); tot += 2;
+      if (r.to != null) eTo.push(Math.abs(r.to - d.to) * 1000); else miss++;
+      if (r.td != null) eTd.push(Math.abs(r.td - d.td) * 1000); else miss++;
+    }
+    const m = (a) => (a.length ? a.reduce((x, y) => x + y, 0) / a.length : NaN);
+    const frameMs = 1000 / fps, ok = miss === 0 && m(eTo) < Math.max(0.35 * frameMs, 4) && m(eTd) < Math.max(0.35 * frameMs, 4);
+    if (!ok) totalFail++;
+    flowRows.push(`<tr><td>${fps} fps</td><td>${tot - miss}/${tot}</td><td>${m(eTo).toFixed(1)}</td><td>${m(eTd).toFixed(1)}</td><td>${frameMs.toFixed(1)}</td><td class="${ok ? 'ok' : 'bad'}">${ok ? 'OK' : 'KO'}</td></tr>`);
+  }
+  // zona senza texture: deve rifiutare (nessun evento), non inventarlo
+  const dflat = mkFlow(120, 0.55, 99, true); const rf = flowEvents(dflat.gray, Wd, Hd, dflat.tc, dflat.kp, dflat.rough);
+  const okFlat = rf.to == null && rf.td == null; if (!okFlat) totalFail++;
+  flowRows.push(`<tr><td>zona senza texture</td><td colspan="4">eventi: ${rf.to == null ? '—' : 'inventato'} / ${rf.td == null ? '—' : 'inventato'}</td><td class="${okFlat ? 'ok' : 'bad'}">${okFlat ? 'OK (rifiuta)' : 'KO'}</td></tr>`);
+  // sotto 25 fps non si usa
+  const d20 = mkFlow(20, 0.55, 7); const r20 = flowEvents(d20.gray, Wd, Hd, d20.tc, d20.kp, d20.rough); const ok20 = r20.to == null && r20.td == null; if (!ok20) totalFail++;
+  flowRows.push(`<tr><td>20 fps</td><td colspan="4">non utilizzato (landmark)</td><td class="${ok20 ? 'ok' : 'bad'}">${ok20 ? 'OK' : 'KO'}</td></tr>`);
+}
+// luce e contrasto
+{
+  const kp = Array.from({ length: 40 }, () => { const k = mkKp(0.136, 0.07, 9 / 16); for (const i of [0, 27, 28, 29, 30, 31, 32]) { k[i * 3] = 0.5; k[i * 3 + 1] = i === 0 ? 0.2 : 0.8; k[i * 3 + 2] = 0.9; } return k; });
+  const qq = (ex) => assessRecording({ fps: 240, width: 1080, height: 1920 }, { t: kp.map((_, i) => i / 240), kp }, { aspect: 9 / 16, tracks: 1, ...ex });
+  const has = (r, c) => r.items.some((i) => i.code === c && i.level === 'warn');
+  for (const [nm, ex, want] of [['video buio', { luma: 25, footContrast: 40 }, 'light'], ['sovraesposto', { luma: 235, footContrast: 40 }, 'light'], ['piedi senza contrasto', { luma: 120, footContrast: 4 }, 'contrast']]) {
+    const ok = has(qq(ex), want); if (!ok) totalFail++; qRows.push(`<tr><td>${nm}: avviso</td><td class="${ok ? 'ok' : 'bad'}">${ok ? 'OK' : 'KO'}</td></tr>`);
+  }
+  const ok = !has(qq({ luma: 120, footContrast: 40 }), 'light') && !has(qq({ luma: 120, footContrast: 40 }), 'contrast'); if (!ok) totalFail++;
+  qRows.push(`<tr><td>luce e contrasto normali: nessun avviso</td><td class="${ok ? 'ok' : 'bad'}">${ok ? 'OK' : 'KO'}</td></tr>`);
+}
 const f = (x, d = 1) => (Number.isFinite(x) ? x.toFixed(d) : '—');
 document.getElementById('out').innerHTML =
   `<table><tr><th>Test</th><th>fps</th><th>Voli trovati</th><th>Falsi</th><th>Err. T medio (ms)</th><th>Err. T p95 (ms)</th><th>Err. altezza medio %</th><th>p95 %</th><th>Err. contatto (ms)</th><th>Err. dip (cm)</th><th>SJ con CM falso</th><th>Esito</th></tr>` +
   rows.map((r) => `<tr><td>${r.kind}</td><td>${r.fps}</td><td>${r.found}</td><td>${r.extra}</td><td>${f(r.eMean)}</td><td>${f(r.eP95)}</td><td>${f(r.pMean)}</td><td>${f(r.pP95)}</td><td>${f(r.cMean)} (n=${r.cN})</td><td>${f(r.dipMean)}</td><td>${r.cmSj ?? '—'}</td><td class="${r.pass ? 'ok' : 'bad'}">${r.pass ? 'OK' : 'KO'}</td></tr>`).join('') +
-  `</table><h2 style="font-size:15px">Controllo di coerenza con la gravità (suggerimento di calibrazione)</h2><table><tr><th>Scenario</th><th>Suggerimento (4 prove)</th><th>Esito</th></tr>${slowRows.join('')}</table><h2 style="font-size:15px">Deriva del suolo (atleta che si avvicina alla camera)</h2><table><tr><th>Scenario</th><th>fps</th><th>Voli trovati</th><th>Err. T medio (ms)</th><th>Esito</th></tr>${driftRows.join('')}</table><h2 style="font-size:15px">Robustezza ai difetti dei landmark</h2><table><tr><th>Difetto</th><th>fps</th><th>Voli trovati</th><th>Falsi</th><th>Err. T medio (ms)</th><th>Esito</th></tr>${robRows.join('')}</table><h2 style="font-size:15px">Formule con valori noti</h2><table><tr><th>Formula</th><th>Calcolato</th><th>Atteso</th><th>Esito</th></tr>${fRows.join('')}</table><h2 style="font-size:15px">Riconoscimento dell'inquadratura</h2><table><tr><th>Scenario</th><th>Rapporto spalle/busto</th><th>Riconosciuta</th><th>Esito</th></tr>${vRows.join('')}</table><h2 style="font-size:15px">Controllo qualità della ripresa</h2><table><tr><th>Caso</th><th>Esito</th></tr>${qRows.join('')}</table><h2 style="font-size:15px">Suolo diverso e salto su una gamba</h2><table><tr><th>Scenario</th><th>fps</th><th>Voli trovati</th><th>Err. T medio (ms)</th><th>Esito</th></tr>${gRows.join('')}</table><p class="${totalFail ? 'bad' : 'ok'}">${totalFail ? totalFail + ' scenari fuori soglia' : 'Tutti gli scenari entro soglia'}</p>`;
+  `</table><h2 style="font-size:15px">Controllo di coerenza con la gravità (suggerimento di calibrazione)</h2><table><tr><th>Scenario</th><th>Suggerimento (4 prove)</th><th>Esito</th></tr>${slowRows.join('')}</table><h2 style="font-size:15px">Deriva del suolo (atleta che si avvicina alla camera)</h2><table><tr><th>Scenario</th><th>fps</th><th>Voli trovati</th><th>Err. T medio (ms)</th><th>Esito</th></tr>${driftRows.join('')}</table><h2 style="font-size:15px">Robustezza ai difetti dei landmark</h2><table><tr><th>Difetto</th><th>fps</th><th>Voli trovati</th><th>Falsi</th><th>Err. T medio (ms)</th><th>Esito</th></tr>${robRows.join('')}</table><h2 style="font-size:15px">Formule con valori noti</h2><table><tr><th>Formula</th><th>Calcolato</th><th>Atteso</th><th>Esito</th></tr>${fRows.join('')}</table><h2 style="font-size:15px">Riconoscimento dell'inquadratura</h2><table><tr><th>Scenario</th><th>Rapporto spalle/busto</th><th>Riconosciuta</th><th>Esito</th></tr>${vRows.join('')}</table><h2 style="font-size:15px">Controllo qualità della ripresa</h2><table><tr><th>Caso</th><th>Esito</th></tr>${qRows.join('')}</table><h2 style="font-size:15px">Suolo diverso e salto su una gamba</h2><table><tr><th>Scenario</th><th>fps</th><th>Voli trovati</th><th>Err. T medio (ms)</th><th>Esito</th></tr>${gRows.join('')}</table><h2 style="font-size:15px">Eventi dai pixel del piede (verità nota)</h2><table><tr><th>Scenario</th><th>Eventi trovati</th><th>Err. stacco (ms)</th><th>Err. atterr. (ms)</th><th>1 fotogramma (ms)</th><th>Esito</th></tr>${flowRows.join('')}</table><p class="${totalFail ? 'bad' : 'ok'}">${totalFail ? totalFail + ' scenari fuori soglia' : 'Tutti gli scenari entro soglia'}</p>`;
 window.__results = { rows, totalFail };
 </script></body></html>

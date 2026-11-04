@@ -289,6 +289,66 @@ function solve3(A, b) {
   return x;
 }
 
+/**
+ * Come hingeFit2 ma con rampa QUADRATICA (y = G + a·f + v·u + c·u², u = distanza dall'evento sul lato rampa).
+ * Una retta su un moto parabolico interseca il suolo in anticipo di b·L²/6 / pendenza (≈6 ms con foot-speed e finestre tipici):
+ * con la curvatura libera lo stacco e l'atterraggio non sono più spostati dalla gravità. c è vincolato in modo che la rampa resti monotona.
+ */
+export function hingeQuad(t, y, i0, i1, dir, ratio = 0.35) {
+  const lo = Math.max(0, i0), hi = Math.min(y.length - 1, i1);
+  const idx = [];
+  for (let k = lo; k <= hi; k++) if (isNum(y[k])) idx.push(k);
+  if (idx.length < 9) return null;
+  const dt = (t[hi] - t[lo]) / Math.max(1, hi - lo);
+  const tA = t[idx[2]], tB = t[idx[idx.length - 3]];
+  const steps = Math.max(24, Math.round((tB - tA) / (dt / 16)));
+  let best = null;
+  const X = [0, 0, 0, 0], A = [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]], b = [0, 0, 0, 0];
+  for (let st = 0; st <= steps; st++) {
+    const tau = tA + ((tB - tA) * st) / steps;
+    for (let r = 0; r < 4; r++) { b[r] = 0; for (let c = 0; c < 4; c++) A[r][c] = 0; }
+    let umax = 0;
+    for (const k of idx) {
+      const u = t[k] - tau;
+      const f = dir > 0 ? Math.min(0, u) : Math.max(0, u);
+      const r1 = dir > 0 ? Math.max(0, u) : Math.max(0, -u);
+      if (r1 > umax) umax = r1;
+      X[0] = 1; X[1] = f; X[2] = r1; X[3] = r1 * r1;
+      for (let r = 0; r < 4; r++) { b[r] += X[r] * y[k]; for (let c = 0; c < 4; c++) A[r][c] += X[r] * X[c]; }
+    }
+    const sol = solveN(A, b);
+    if (!sol) continue;
+    const [G, a, v, c] = sol;
+    if (!(v > 0) || Math.abs(a) > ratio * v) continue;
+    if (v + 2 * c * umax < 0.2 * v) continue; // rampa non monotona o quasi piatta alla fine della finestra
+    let sse = 0;
+    for (const k of idx) {
+      const u = t[k] - tau;
+      const f = dir > 0 ? Math.min(0, u) : Math.max(0, u);
+      const r1 = dir > 0 ? Math.max(0, u) : Math.max(0, -u);
+      const e = y[k] - (G + a * f + v * r1 + c * r1 * r1);
+      sse += e * e;
+    }
+    if (!best || sse < best.sse) best = { tau, G, a, v, c, sse };
+  }
+  if (best) best.rmse = Math.sqrt(best.sse / idx.length);
+  return best;
+}
+
+function solveN(A, b) {
+  const n = b.length, M = A.map((r, i) => [...r, b[i]]);
+  for (let c = 0; c < n; c++) {
+    let p = c;
+    for (let r = c + 1; r < n; r++) if (Math.abs(M[r][c]) > Math.abs(M[p][c])) p = r;
+    if (Math.abs(M[p][c]) < 1e-14) return null;
+    [M[c], M[p]] = [M[p], M[c]];
+    for (let r = c + 1; r < n; r++) { const f = M[r][c] / M[c][c]; for (let k = c; k <= n; k++) M[r][k] -= f * M[c][k]; }
+  }
+  const x = new Array(n).fill(0);
+  for (let r = n - 1; r >= 0; r--) { let sum = M[r][n]; for (let c = r + 1; c < n; c++) sum -= M[r][c] * x[c]; x[r] = sum / M[r][r]; }
+  return x;
+}
+
 /** Fit parabolico y = c0 + c1 x + c2 x^2 con x = t - t0. */
 export function parabolaFit(t, y, i0, i1) {
   const pts = [];
