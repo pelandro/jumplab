@@ -1,9 +1,10 @@
 // Service worker: shell dell'app in cache per l'uso offline; modelli e WASM vengono messi in cache al primo uso.
-const VERSION = 'jumplab-v4.0';
+const VERSION = 'jumplab-v4.5';
 const SHELL = [
   './', './index.html', './manifest.webmanifest', './css/app.css', './icons/icon-192.png',
   './js/main.js', './js/store.js',
   './js/engine/signal.js', './js/engine/jumps.js', './js/engine/video.js', './js/engine/pose.js', './js/engine/pipeline.js',
+  './js/engine/quality.js', './js/engine/footflow.js', './js/ui/guide.js',
   './js/ui/dom.js', './js/ui/home.js', './js/ui/analyze.js', './js/ui/review.js', './js/ui/history.js', './js/ui/profile.js',
   './js/ui/player.js', './js/ui/chart.js', './js/ui/camera.js',
   './vendor/mp4box.all.min.js',

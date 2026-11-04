@@ -57,6 +57,14 @@ Cloudflare Pages o Vercel come sito statico. Apri l'URL HTTPS su iPhone con Safa
 - Ripiego sul bacino quando i piedi non sono rilevati per brevi tratti.
 - Dettagli, misure e limiti in `VALIDAZIONE.md`.
 
+## Novità v4.5 (controlli incrociati e seconda stima dell'altezza)
+
+- **Altezza da velocità di stacco** (apice del bacino) accanto a quella da tempo di volo: non dipende dall'atterraggio più flesso. È un controllo, non un sostituto: mostrata con la sua incertezza, inclusa nel CSV.
+- Finestra di tracciamento del piede più ampia: stacco laterale più ripetibile (±16 → ±8 ms nei video di prova).
+- Provato e scartato: baricentro a segmenti al posto del bacino (peggiore sui dati reali).
+- Cache offline completa; test di regressione per la nuova stima.
+- Misure, numeri e limiti in `VALIDAZIONE.md` (sezione v4.5).
+
 ## Novità v4.4 (precisione di stacco e atterraggio)
 
 - **Eventi dai pixel del piede**: stacco e primo contatto si misurano seguendo i pixel dell'avampiede (template matching sub-pixel, fit a rampa quadratica), indipendentemente dal modello di postura. Su un video reale a 120 fps i landmark sbagliavano di −87…+46 ms (verifica visiva dei fotogrammi); su scene con verità nota l'errore del nuovo metodo è ≤ 0,7 ms allo stacco e 2–4 ms all'atterraggio.

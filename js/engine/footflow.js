@@ -87,12 +87,13 @@ function fitTrack(t, dy, cor, dir, hPx, dt, mode) {
 export function flowEvents(gray, w, h, tc, kp, rough, opts = {}) {
   const diffs = []; for (let i = 1; i < tc.length; i++) if (tc[i] > tc[i - 1]) diffs.push(tc[i] - tc[i - 1]);
   const dt = median(diffs) || 1 / 30;
-  const P = clampInt(0.018 * h, 7, 14);
+  // zona più grande = stacco laterale più ripetibile (intervallo tra sottocampionamenti 16→8 ms e 10→7 ms) senza spostare le stime; 20 px peggiora il frontale
+  const P = opts.P ?? clampInt(0.03 * h, 10, 18);
   const vmax = 1.5 * h * dt; // spostamento massimo plausibile per fotogramma
   const SY = clampInt(vmax * 1.3 + 3, 6, 48), SX = clampInt(vmax * 0.4 + 3, 4, 20);
   const side = (q) => (opts.leg === 'left' ? q % 2 === 1 : opts.leg === 'right' ? q % 2 === 0 : true); // 29,31 = sinistra; 30,32 = destra
   const idxAt = (t, dir) => { let k = -1; for (let i = 0; i < tc.length; i++) if (dir > 0 ? tc[i] >= t : tc[i] <= t) { k = i; if (dir > 0) break; } return k; };
-  const point = (i, q) => { for (let d = 0; d < 4; d++) for (const j of [i + d, i - d]) { const k = kp[j]; if (k && k[q * 3 + 2] > 0.3) return [k[q * 3] * w, k[q * 3 + 1] * h]; } return null; };
+  const point = (i, q) => { for (let d = 0; d < 4; d++) for (const j of [i + d, i - d]) { const k = kp[j]; if (k && k[q * 3 + 2] > 0.3) return [k[q * 3] * w + (opts.dx || 0), k[q * 3 + 1] * h + (opts.dy || 0)]; } return null; };
   const run = (tFrom, tTo, joints, dir) => {
     const i0 = idxAt(tFrom, 1), i1 = idxAt(tTo, -1);
     if (i0 < 0 || i1 - i0 < 8) return [];

@@ -369,6 +369,28 @@ export function describeJump(sig, cache, to, td, ctx = {}) {
   const uncT = ctx.uncT ?? Math.SQRT2 * 0.35 * dt * 1.3;
   const uncCm = ((G * T * uncT) / 4) * 100;
 
+  // Altezza da VELOCITÀ DI STACCO: tra stacco e atterraggio il baricentro (qui il bacino) è in caduta libera, quindi il tempo che impiega ad
+  // arrivare al culmine dà la velocità di stacco: v0 = g·(t_culmine − t_stacco), h = v0²/(2g). Come il metodo impulso-quantità di moto delle
+  // pedane, non dipende da come si atterra (il tempo di volo sovrastima se si atterra più flessi) né dalla scala in pixel. Il culmine è il
+  // vertice di una parabola adattata al 76 % centrale del volo. Misurato su 4 salti reali: da 0,9 a 6,6 cm sotto il tempo di volo, nel verso
+  // atteso dalla letteratura; la sensibilità all'istante di stacco è simile a quella del tempo di volo, quella al culmine è ±8 ms (stima).
+  let apexCm = NaN, apexUncCm = NaN, apexAsymMs = NaN;
+  if (T < 1.5 && cache.hip?.sm) {
+    const m2 = Math.max(1, Math.round((0.12 * T) / dt));
+    const pf = parabolaFit(t, cache.hip.sm, i0 + m2, i1 - m2);
+    if (pf && pf.c2 < 0 && pf.n >= 12) {
+      const ta = pf.t0 - pf.c1 / (2 * pf.c2);
+      if (ta > to + 0.2 * T && ta < td - 0.2 * T) {
+        apexCm = ((G * (ta - to) ** 2) / 2) * 100;
+        apexAsymMs = (ta - (to + td) / 2) * 1000; // < 0: il culmine arriva prima della metà del volo (atterraggio più basso dello stacco)
+        apexUncCm = G * (ta - to) * Math.hypot(0.008, uncT * 0.7) * 100;
+        if (heightCm > 8 && (heightCm - apexCm) / heightCm > 0.15) {
+          add('info', 'apexdiff', `L'altezza da velocità di stacco (${apexCm.toFixed(1)} cm) è inferiore del ${(((heightCm - apexCm) / heightCm) * 100).toFixed(0)} % a quella da tempo di volo (${heightCm.toFixed(1)} cm): tipico di un atterraggio più flesso dello stacco (il tempo di volo sovrastima). Il valore reale sta probabilmente tra i due.`, 0);
+        }
+      }
+    }
+  }
+
   // Postura: il tempo di volo vale solo se bacino-piedi sono uguali allo stacco e all'atterraggio. Se si atterra più
   // flessi (bacino più basso) il volo si allunga e l'altezza è sovrastimata (letteratura: 2–11 %, ~2,5 cm).
   let postureDropCm = NaN, heightCorrCm = NaN;
@@ -402,7 +424,7 @@ export function describeJump(sig, cache, to, td, ctx = {}) {
 
   const ph = TEST_TYPES[ctx.testType]?.needsDip || !ctx.contact ? phaseMetrics(sig, hip, i0, to) : null;
   const j = {
-    to, td, T, heightCm, v0, flightMs: T * 1000, uncT, uncCm, postureDropCm, heightCorrCm,
+    to, td, T, heightCm, v0, flightMs: T * 1000, uncT, uncCm, postureDropCm, heightCorrCm, apexCm, apexUncCm, apexAsymMs,
     contact: ctx.contact ?? null, contactSource: ctx.contactSource ?? null,
     riseCm, gRatio, timeScaleHint, frameCm, coverage: cov,
     dipCm: NaN, timeToTakeoff: NaN, rsiMod: NaN, rsi: NaN, rsiFlight: NaN, boxCm: ctx.boxCm ?? null,

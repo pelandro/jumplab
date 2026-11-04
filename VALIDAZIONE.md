@@ -314,3 +314,33 @@ Lettura: è il metro esterno con verità da pedana a cui confrontarci. Un buon m
 | ND-Jump (Blanchard, 89 atleti, CMJ e drop jump) | i **video si ottengono su richiesta** da cvrl.nd.edu (ND-Jump Analysis Video Dataset). Il repository [Blanchard-lab/ape-v](https://github.com/Blanchard-lab/ape-v) contiene solo scheletri OpenPose (anca, ginocchio, caviglia in pixel) ed etichette di errori tecnici: **nessuna forza né istanti di stacco/atterraggio**. |
 | ForcePose (Michigan) | forza a 600 Hz + mocap + pose 2D, CMJ inclusi, ma i dati sono nei tarball di prism.eecs.umich.edu con **certificato scaduto dal 20/06/2025**: non scaricabili in modo sicuro. Il repository GitHub ha solo il codice. Non contiene immagini. |
 | BioCV (Bath) | su richiesta. |
+
+## v4.5 — verifica incrociata dei dati, patch di tracciamento, altezza da velocità di stacco
+
+Cosa è stato provato in questa versione, con esito (inclusi i risultati negativi).
+
+### Esperimenti su video reali (5 salti, 2 atleti, tempi reali del file)
+| Prova | Esito | Decisione |
+|---|---|---|
+| **Baricentro a segmenti** (de Leva 1996, 33 punti BlazePose) al posto del bacino, valutato con il residuo balistico (la traiettoria in volo deve essere una parabola con g = 9,81) | **peggiore** del bacino: più rumore, i segmenti degli arti (braccia in oscillazione) disturbano l'apice | si resta sul bacino come proxy del baricentro |
+| **Dimensione della finestra di confronto** (patch ZNCC) | 0,018·h → 0,03·h (10–18 px): ripetibilità dello stacco laterale da ±16 → ±8 ms (0207) e ±10 → ±7 ms (0208); frontale ±2 → ±4 ms; stime centrali spostate di soli 1–3 ms | adottato `0,03·h` |
+| **Parte del piede seguita** (punta/tallone, spostamento di 1–3 px del punto iniziale) | sposta gli eventi di **6–14 ms** | resta un errore sistematico di ~±7 ms, incluso nell'incertezza dichiarata |
+| Decimazione dei fotogrammi sui video veri (240/120 → 120, 60, 40, 30 fps equivalenti) | volo stabile entro pochi ms fino a ~60 fps equivalenti; sotto, l'evento viene scartato o cade sui landmark | invariato (soglia 25 fps, intervallo ≤ 30 ms) |
+
+### Nuovo: altezza da velocità di stacco (apice del baricentro)
+Seconda stima dell'altezza, indipendente dalla posizione di atterraggio: dal bacino si ricava l'istante dell'apice (vertice della parabola, finestra centrale del volo) e si calcola `h = g·(t_apice − t_stacco)²/2`. Non dipende dalla scala in pixel né dal fatto che si atterri più flessi (che gonfia l'altezza da tempo di volo del 2–11 % in letteratura).
+- **Test sintetici** (CMJ con fisica balistica, 12 salti per frequenza): rapporto apice/volo **1,010 (60 fps), 1,006 (120 fps), 0,999 (240 fps)**; asimmetria dell'apice 2,6 / 1,0 / 0,7 ms. Fa parte della suite (`tests/index.html`).
+- **Video reali** (apice − volo): −0,9, −2,8, −3,2, −6,6 cm sui quattro salti dell'esperimento offline. App completa su IMG_0181 (60 fps): volo 34,9 cm, apice **32,0 ± 2,7 cm** (−2,9 cm, asimmetria −11 ms).
+- **Cosa NON è provato**: non c'è una verità da pedana, quindi non si sa quale delle due stime sia più vicina al vero. Il bacino di BlazePose non è il baricentro (con le braccia che si muovono può sbagliare di qualche cm). Per questo l'app **mostra l'apice come controllo e non lo sostituisce al tempo di volo**; se le due stime differiscono più del 15 % compare un'informazione.
+- Compare nei risultati («Da velocità di stacco: X ± Y cm»), nelle metriche e nell'export CSV (`altezza_vel_stacco_cm`). Solo per voli < 1,5 s.
+
+### Controlli di funzionamento (v4.5.0)
+- Suite sintetica completa (scenari CMJ/SJ/DJ/rimbalzi a 30–240 fps, deriva, robustezza, formule, vista, qualità, suolo, singola gamba, pixel del piede): **tutti entro soglia**.
+- Percorso completo nel browser reale (WebCodecs → posa → pixel → rifinitura → risultati) sul video IMG_0181 (taglio breve): nessun errore di pagina, risultati e nuove righe presenti.
+- Cache offline: ora comprende anche `quality.js`, `footflow.js`, `guide.js`.
+
+### Limiti (invariati e nuovi)
+- 2 atleti, 5 salti reali: nessuna verità da pedana, quindi **errore assoluto non dimostrato**; solo ripetibilità e coerenza fisica.
+- Riferimento di letteratura per un metodo da video a 120 fps: MAE 17 ms sul volo, 3,0 cm sull'altezza (Chiu 2025). Non affermiamo di fare meglio.
+- Errore sistematico del punto seguito sul piede ~±7 ms (≈ ±1 cm); stacco laterale meno ripetibile (±7–8 ms) di quello frontale.
+
