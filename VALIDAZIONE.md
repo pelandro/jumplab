@@ -119,3 +119,33 @@ Limite noto: camera che trema (3 Hz, ±11 px) a 240 fps → 8,8 ms. Usare un sup
 - Un solo atleta, due video, un confronto con TrackJump (che conta fotogrammi interi: ±1 fotogramma = ±3 cm a 60 fps).
 - Nessun confronto con pedana di forza: l'errore assoluto resta sconosciuto.
 - Nessuna prova su Safari/iPad. La rifinitura con Heavy gira su CPU nei dispositivi Apple: tempi da misurare.
+
+## v4.3 — pavimento, vista laterale, qualità della ripresa, formule
+
+### Cosa è stato verificato e come
+| Funzione | Verifica | Esito |
+|---|---|---|
+| Atterraggio in un punto diverso dallo stacco | gradino del suolo di ±0,03 e ±0,06 altezze-fotogramma (≈ ±9 e ±19 cm) a metà volo, 30/60/240 fps | errore sul volo invariato (5–6 ms); il tracciamento locale del suolo della v4.2 lo gestiva già |
+| Suolo diverso: avviso | la differenza di livello suolo stacco/atterraggio è misurata e segnalata oltre 15 cm (non per DJ/rimbalzi) | solo su sintetico |
+| **Salto su una gamba** | il selettore Sinistra/Destra era solo un'etichetta; ora usa solo i landmark del piede che salta. Gamba libera 0,07 più in basso in volo: due gambe 65–91 ms di errore, una gamba **7–10 ms** | verificato su sintetico |
+| Riconoscimento inquadratura | rapporto larghezza spalle / lunghezza busto: **0,68 su video frontale reale** (Lite 0,66, Full 0,69, Heavy 0,68). Frontale ≥ 0,50, laterale < 0,22, obliqua in mezzo | frontale reale; laterale/obliqua solo con scheletri stilizzati |
+| Controllo qualità della ripresa | fps, risoluzione, piedi visibili, atleta piccolo/grande/tagliato, più persone, inquadratura | su casi costruiti |
+| Più persone | una traccia per persona; si segue quella con maggiore escursione verticale del bacino | vedi sotto |
+| Formule | Samozino, Sayers, RSI, altezza da volo, statistiche di serie con valori calcolati a mano | 9 su 9 |
+
+### Formule (e fonti)
+- Altezza da tempo di volo: `h = g·T²/8`. Sovrastima se si atterra più flessi che allo stacco (2–11 %, ~2,5 cm).
+- Forza, velocità e potenza medie di spinta: **Samozino et al. 2008** (validato su pedana): `F = m·g·(h/hpo + 1)`, `v = √(g·h/2)`,
+  `P = F·v`, con `hpo` = spostamento del bacino dal punto più basso allo stacco. Identico al calcolo precedente, ora esplicito, con valori per kg.
+- Potenza di picco **Sayers et al. 1999, equazione per squat jump** (`60,7·h + 45,3·m − 2055`). Applicata a dati CMJ sovrastima ~2,7 %.
+  I coefficienti «CMJ» che si trovano in giro non sono stati confermati da una fonte primaria e non sono usati.
+- RSI = altezza / tempo di contatto. Il calcolo da tempo di volo tende a sovrastimare sotto 1,0 e sottostimare sopra 1,0 rispetto a quello
+  da velocità di stacco (Healy et al. 2019): confronti tra atleti con cautela.
+- Nuovi: FT:CT (volo / tempo al decollo), velocità media di spinta, forza e potenza per kg, variabilità (CV) e calo di altezza nelle serie.
+
+### Limiti dichiarati
+- **Nessun video laterale reale è stato provato.** Il codice funziona su dati sintetici laterali, ma l'accuratezza di stacco/atterraggio da
+  vista laterale non è misurata.
+- Forza e potenza sono stime con scala dalla statura dichiarata (errore di scala plausibile ±5 %): non sono misure da pedana.
+- Le schede di ripresa sono buone pratiche. Distanza e altezza della camera non sono state validate da nessuno studio trovato.
+- Non esiste un dataset pubblico accessibile con video + pedana (Zenodo, IEEE DataPort, Figshare controllati): BioCV (Università di Bath) è su richiesta.

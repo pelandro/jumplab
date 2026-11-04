@@ -57,6 +57,15 @@ Cloudflare Pages o Vercel come sito statico. Apri l'URL HTTPS su iPhone con Safa
 - Ripiego sul bacino quando i piedi non sono rilevati per brevi tratti.
 - Dettagli, misure e limiti in `VALIDAZIONE.md`.
 
+## Novità v4.3
+
+- **Info per ogni test** (tasto «i» su ogni tipo): come registrare, vista frontale o laterale, frame rate, errori da evitare.
+- **Qualità della ripresa** nei risultati: inquadratura riconosciuta, fps, piedi visibili, atleta tagliato o piccolo, più persone.
+- **Più persone nell'inquadratura**: si segue chi salta, non la persona più grande o più vicina.
+- **Salto su una gamba** (Sinistra/Destra): usa solo il piede che salta.
+- **Suolo**: segnalata la differenza di livello tra stacco e atterraggio.
+- **Formule**: Samozino (forza, velocità, potenza), per kg; FT:CT; serie con variabilità e calo di altezza.
+
 ## Come filmare (la parte che conta di più)
 
 - **Slo-mo 240 fps** dell'app Fotocamera iPhone, poi *Importa*. A 30 fps ±1 frame vale ~4 cm; a 240 fps <1 cm.

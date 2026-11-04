@@ -27,7 +27,7 @@ const app = {
     const notify = () => run.listener?.();
     const opts = {
       model: S.settings.model, delegate: S.settings.delegate, testType: S.testType, heightCm: ath.heightCm, massKg: ath.massKg,
-      boxCm: S.boxCm || undefined, refine: S.settings.refine !== false, signal: ctrl.signal, ...extra,
+      boxCm: S.boxCm || undefined, leg: S.leg, refine: S.settings.refine !== false, signal: ctrl.signal, ...extra,
     };
     app.go('#/analyze');
     try {

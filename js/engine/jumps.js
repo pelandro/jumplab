@@ -16,6 +16,19 @@ import {
 
 export const G = 9.80665;
 
+// ---- Formule di riferimento (esportate per poterle verificare con valori noti) ----------------------------------------
+/** Altezza dal tempo di volo: h = g·T²/8 (m). Valida se posizione del corpo allo stacco e all'atterraggio coincide. */
+export const heightFromFlight = (T) => (G * T * T) / 8;
+/** Samozino et al. 2008 (validato su pedana): F media = m·g·(h/hpo + 1); v media = sqrt(g·h/2); P media = F·v. h = altezza (m), hpo = corsa di spinta (m). */
+export function samozino(mass, h, hpo) {
+  const F = mass * G * (h / hpo + 1), v = Math.sqrt((G * h) / 2);
+  return { F, v, P: F * v };
+}
+/** Sayers et al. 1999, equazione per squat jump: potenza di picco (W) da altezza (cm) e massa (kg). */
+export const sayersPeakPower = (hCm, mass) => 60.7 * hCm + 45.3 * mass - 2055;
+/** RSI = altezza del rimbalzo / tempo di contatto (m/s). Convenzionale: confronti tra atleti con cautela (Healy et al. 2019). */
+export const rsiOf = (h, gct) => h / gct;
+
 export const LM = {
   NOSE: 0, LSH: 11, RSH: 12, LHIP: 23, RHIP: 24, LKNEE: 25, RKNEE: 26,
   LANK: 27, RANK: 28, LHEEL: 29, RHEEL: 30, LTOE: 31, RTOE: 32,
@@ -85,8 +98,11 @@ export function buildSignals(track, tune = {}) {
   const n = tGrid.length;
   const fw = tune.fw ?? (dt < 0.008 ? 5 : 3);
   const f = (a) => medianFilter(fillGaps(a, Math.max(1, Math.round(0.05 / dt))), fw);
-  const foot = [f(grid.heelL), f(grid.toeL), f(grid.heelR), f(grid.toeR)];
-  const ank = [f(grid.ankL), f(grid.ankR)];
+  // Salto su una gamba: la gamba libera può restare più in basso di quella d'appoggio e accorcia il volo misurato,
+  // quindi si usano solo i punti del piede che salta ('left'/'right' = sinistra/destra della persona).
+  const leg = tune.leg;
+  const foot = leg === 'left' ? [f(grid.heelL), f(grid.toeL)] : leg === 'right' ? [f(grid.heelR), f(grid.toeR)] : [f(grid.heelL), f(grid.toeL), f(grid.heelR), f(grid.toeR)];
+  const ank = leg === 'left' ? [f(grid.ankL)] : leg === 'right' ? [f(grid.ankR)] : [f(grid.ankL), f(grid.ankR)];
   const footLow = new Float64Array(n).fill(NaN);
   const footLowAnkle = new Float64Array(n).fill(NaN);
   let validFoot = 0;
@@ -390,12 +406,12 @@ export function describeJump(sig, cache, to, td, ctx = {}) {
     contact: ctx.contact ?? null, contactSource: ctx.contactSource ?? null,
     riseCm, gRatio, timeScaleHint, frameCm, coverage: cov,
     dipCm: NaN, timeToTakeoff: NaN, rsiMod: NaN, rsi: NaN, rsiFlight: NaN, boxCm: ctx.boxCm ?? null,
-    forceN: NaN, powerW: NaN, sayersW: NaN, cmDetected: false,
+    forceN: NaN, powerW: NaN, sayersW: NaN, ftct: NaN, vMean: NaN, forceRel: NaN, powerRel: NaN, sayersRel: NaN, groundShiftCm: NaN, cmDetected: false,
     onsetT: null, bottomT: null,
     ground: { pre: cache.Gpre, post: cache.Gpost },
   };
   if (isNum(j.contact) && j.contact > 0.04) {
-    j.rsi = hM / j.contact;
+    j.rsi = rsiOf(hM, j.contact);
     j.rsiFlight = T / j.contact;
   }
   if (ph) {
@@ -406,13 +422,28 @@ export function describeJump(sig, cache, to, td, ctx = {}) {
     j.cmDetected = ph.cmDropFh / fhPerM > 0.04;
     const d = ph.pushFh / fhPerM;
     if (ctx.massKg > 0 && d > 0.05) {
-      j.forceN = ctx.massKg * (G + (v0 * v0) / (2 * d));
-      j.powerW = j.forceN * (v0 / 2);
+      // Samozino et al. 2008: F = m·g·(h/hpo + 1) = m·(g + v0²/(2·hpo)); P = F·v0/2. hpo = spostamento del bacino dal punto più basso allo stacco
+      const sz = samozino(ctx.massKg, hM, d);
+      j.forceN = sz.F;
+      j.powerW = sz.P;
     }
     if (ctx.testType === 'sj' && j.cmDetected) add('warn', 'cm_in_sj', 'Squat jump: rilevato un contromovimento prima della spinta (fermati 2 s nella posizione bassa).', 0.1);
     if ((ctx.testType === 'cmj' || ctx.testType === 'cmj_arms') && isNum(j.dipCm) && j.dipCm < 4) add('info', 'nodip', 'Contromovimento molto piccolo: il salto sembra partire da fermo.', 0);
   }
-  if (ctx.massKg > 0) j.sayersW = 60.7 * heightCm + 45.3 * ctx.massKg - 2055;
+  // Sayers et al. 1999 (equazione per squat jump; applicata a dati CMJ sovrastima il picco di potenza del ~2,7 %)
+  if (ctx.massKg > 0) j.sayersW = sayersPeakPower(heightCm, ctx.massKg);
+  // Rapporti utili: tempo di volo / tempo di contrazione (FT:CT) e velocità media di spinta (Samozino: v = sqrt(g·h/2))
+  if (isNum(j.timeToTakeoff) && j.timeToTakeoff > 0.05) j.ftct = T / j.timeToTakeoff;
+  j.vMean = Math.sqrt((G * hM) / 2);
+  if (ctx.massKg > 0) {
+    if (isNum(j.forceN)) { j.forceRel = j.forceN / ctx.massKg; j.powerRel = j.powerW / ctx.massKg; }
+    j.sayersRel = j.sayersW / ctx.massKg;
+  }
+  // Suolo: differenza di livello tra stacco e atterraggio (positivo = il suolo appare più in basso all'atterraggio)
+  j.groundShiftCm = isNum(cache.Gpre) && isNum(cache.Gpost) ? ((cache.Gpre - cache.Gpost) / fhPerM) * 100 : NaN;
+  if (isNum(j.groundShiftCm) && Math.abs(j.groundShiftCm) > 15 && ctx.testType !== 'dj' && ctx.testType !== 'rebound') {
+    add('info', 'groundshift', `Il suolo appare ${Math.abs(j.groundShiftCm).toFixed(0)} cm ${j.groundShiftCm > 0 ? 'più in basso' : 'più in alto'} all'atterraggio che allo stacco: l'atleta si è spostato verso/lontano dalla camera, la camera si è mossa o la superficie è diversa. Atterrare su un piano più alto o basso rende il tempo di volo non valido.`, 0);
+  }
   j.score = clamp(score, 0, 1);
   j.confidence = j.score >= 0.75 ? 'alta' : j.score >= 0.5 ? 'media' : 'bassa';
   j.issues = issues;
@@ -423,7 +454,7 @@ export function describeJump(sig, cache, to, td, ctx = {}) {
  * Analisi completa di una traccia. opts: { testType, heightCm, massKg, boxCm }
  */
 export function analyze(track, opts = {}) {
-  const sig = buildSignals(track, opts.tune || {});
+  const sig = buildSignals(track, { ...(opts.tune || {}), leg: opts.leg === 'left' || opts.leg === 'right' ? opts.leg : undefined });
   if (!sig) return { sig: null, jumps: [], error: 'Traccia troppo corta o corpo non rilevato' };
   const det = detectFlights(sig, opts);
   const hip = hipUpSignal(sig);
@@ -470,7 +501,14 @@ export function remeasure(result, to, td, opts = {}, contact = null) {
 /** Riepilogo per serie di rimbalzi. */
 export function summarizeSeries(jumps) {
   const withC = jumps.filter((j) => isNum(j.contact) && j.contact > 0);
+  const hs = jumps.map((j) => j.heightCm), mh = mean(hs);
+  const sd = hs.length > 1 ? Math.sqrt(hs.reduce((a, x) => a + (x - mh) ** 2, 0) / (hs.length - 1)) : NaN;
+  const k = Math.max(1, Math.floor(hs.length / 3));
+  const first = mean(hs.slice(0, k)), lastM = mean(hs.slice(-k));
   return {
+    sdCm: sd, cvPct: (sd / mh) * 100,
+    // calo di altezza tra il primo e l'ultimo terzo della serie (indice di fatica), solo con almeno 4 salti
+    declinePct: hs.length >= 4 ? ((first - lastM) / first) * 100 : NaN,
     count: jumps.length,
     bestCm: Math.max(...jumps.map((j) => j.heightCm)),
     meanCm: mean(jumps.map((j) => j.heightCm)),

@@ -77,7 +77,7 @@ export class PoseEngine {
     if (fc.width !== w || fc.height !== h) { fc.width = w; fc.height = h; }
     const c = fc.getContext('2d');
     c.setTransform(-1, 0, 0, 1, w, 0); c.drawImage(canvas, 0, 0, w, h); c.setTransform(1, 0, 0, 1, 0, 0);
-    const b = this._detect(fc, false, null);
+    const b = this._detect(fc, multi, near ? [1 - near[0], near[1]] : null);
     if (!b) return a;
     const out = new Float32Array(33 * 3);
     for (let i = 0; i < 33; i++) {
@@ -87,6 +87,22 @@ export class PoseEngine {
       out[i * 3] = (a[i * 3] * wa + bx * wb) / (wa + wb);
       out[i * 3 + 1] = (a[i * 3 + 1] * wa + by * wb) / (wa + wb);
       out[i * 3 + 2] = Math.min(a[i * 3 + 2], bv);
+    }
+    return out;
+  }
+
+  /** Tutte le persone trovate (fino a 3), ciascuna come Float32Array(33*3) con almeno 8 punti visibili. */
+  detectAll(canvas) {
+    if (this.numPoses !== 3) { this.lm.setOptions({ numPoses: 3 }); this.numPoses = 3; }
+    const res = this.lm.detect(canvas);
+    const out = [];
+    for (const lms of res?.landmarks || []) {
+      let vis = 0;
+      for (const p of lms) if ((p.visibility ?? 1) > 0.4) vis++;
+      if (vis < 8) continue;
+      const kp = new Float32Array(33 * 3);
+      lms.forEach((p, i) => { kp[i * 3] = p.x; kp[i * 3 + 1] = p.y; kp[i * 3 + 2] = p.visibility ?? 0.9; });
+      out.push(kp);
     }
     return out;
   }

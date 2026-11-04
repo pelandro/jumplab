@@ -7,6 +7,7 @@
 import { openVideo } from './video.js';
 import { pose, PoseEngine } from './pose.js';
 import { analyze, remeasure } from './jumps.js';
+import { assessRecording } from './quality.js';
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
 const FULL = { x: 0, y: 0, w: 1, h: 1 };
@@ -18,6 +19,10 @@ export function calibratedTime(frame, cal) {
   if (cal.mode === 'fps') return frame.idx / cal.value;
   return frame.t;
 }
+
+function areaOf(kp) { const b = bboxOf([kp]); return b ? (b.x1 - b.x0) * (b.y1 - b.y0) : 0; }
+function heightOf(kp) { const b = bboxOf([kp]); return b ? b.y1 - b.y0 : 0; }
+function centerOf(kp) { const b = bboxOf([kp]); return b ? [(b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2] : [0.5, 0.5]; }
 
 function bboxOf(kps) {
   let x0 = 1, y0 = 1, x1 = 0, y1 = 0, n = 0;
@@ -80,21 +85,50 @@ export async function runAnalysis(file, opts, cb = {}) {
   cv.width = Math.max(64, Math.round(W * cs)); cv.height = Math.max(64, Math.round(H * cs));
   const ctx = cv.getContext('2d', { willReadFrequently: true });
   const coarse = { idx: [], t: [], kp: [] };
-  let last = null, n = 0;
+  // Una traccia per persona: ogni posa viene assegnata alla traccia più vicina; a fine scansione si segue la persona che salta
+  // (maggiore escursione verticale del bacino), non quella più grande o più vicina alla camera.
+  const tracks = [];
+  let n = 0;
   stage('scan', 0.05, 'Cerco i salti nel video…');
   for await (const { idx, t, frame } of src.frames({ step, signal })) {
     aborted();
     src.drawCrop(frame, ctx, FULL, cv.width, cv.height);
-    const kp = pose.detect(cv, { multi: true, near: last });
-    if (kp) { const b = bboxOf([kp]); if (b) last = [(b.x0 + b.x1) / 2, (b.y0 + b.y1) / 2]; }
-    coarse.idx.push(idx); coarse.t.push(t); coarse.kp.push(kp);
+    const poses = pose.detectAll(cv);
+    const fi = coarse.idx.length;
+    const used = new Set();
+    for (const kp of poses.sort((a, b) => areaOf(b) - areaOf(a))) {
+      const c = centerOf(kp);
+      let best = null, bd = Infinity;
+      for (const tr of tracks) { if (used.has(tr)) continue; const d = Math.hypot(c[0] - tr.c[0], c[1] - tr.c[1]); if (d < bd) { bd = d; best = tr; } }
+      if (!best || bd > Math.max(0.2, 0.7 * heightOf(kp))) { best = { c, kps: new Map() }; tracks.push(best); }
+      best.c = c; best.kps.set(fi, kp); used.add(best);
+    }
+    // anteprima: la traccia più lunga finora
+    const lead = tracks.reduce((a, b) => (!a || b.kps.size > a.kps.size ? b : a), null);
+    coarse.idx.push(idx); coarse.t.push(t); coarse.kp.push(null);
     if (n++ % 2 === 0) {
       stage('scan', 0.05 + 0.3 * (idx / meta.frameCount), `Cerco i salti · ${Math.round((100 * idx) / meta.frameCount)}%`);
-      cb.onPreview?.(cv, kp, { crop: FULL, t });
+      cb.onPreview?.(cv, lead?.kps.get(fi) || null, { crop: FULL, t });
       await tick();
     }
   }
+  // scelta della persona: tracce con almeno il 15 % dei fotogrammi; punteggio = copertura × (escursione verticale del bacino + 0,2)
+  const nFrames = coarse.idx.length;
+  const real = tracks.filter((tr) => tr.kps.size >= Math.max(5, 0.15 * nFrames));
+  const scoreOf = (tr) => {
+    const hy = [], hh = [];
+    for (const k of tr.kps.values()) { hy.push((k[23 * 3 + 1] + k[24 * 3 + 1]) / 2); hh.push(heightOf(k)); }
+    hy.sort((a, b) => a - b); const rng = hy.length > 4 ? hy[Math.floor(0.95 * (hy.length - 1))] - hy[Math.floor(0.05 * (hy.length - 1))] : 0;
+    const bh = hh.sort((a, b) => a - b)[hh.length >> 1] || 0.3;
+    return (tr.kps.size / nFrames) * (rng / bh + 0.2);
+  };
+  const pool = real.length ? real : tracks;
+  const chosen = pool.reduce((a, b) => (!a || scoreOf(b) > scoreOf(a) ? b : a), null);
+  if (chosen) for (const [i, kp] of chosen.kps) coarse.kp[i] = kp;
+  session.people = real.length || (tracks.length ? 1 : 0);
+  if (session.people > 1) log(`Persone rilevate: ${session.people}. Seguita quella con più movimento verticale.`);
   session.coarse = coarse;
+  session.quality = assessRecording(meta, coarse, { aspect, tracks: session.people });
   const found = coarse.kp.filter(Boolean).length;
   log(`Scansione: ${found}/${coarse.kp.length} fotogrammi con corpo rilevato`);
   if (found < Math.max(6, coarse.kp.length * 0.15)) {
@@ -142,11 +176,19 @@ export async function runAnalysis(file, opts, cb = {}) {
     dcv.width = Math.max(32, Math.round(cpx * s)); dcv.height = Math.max(32, Math.round(cpy * s));
     const win = { t0: w.t0, t1: w.t1, crop, frames: [], cw: dcv.width, ch: dcv.height };
     let miss = 0;
+    // più persone: si segue l'atleta per continuità di posizione (coordinate del ritaglio) invece di prendere la posa più grande
+    const multi = (session.people || 1) > 1;
+    let prevC = null;
+    if (multi) {
+      const near = coarse.kp.map((k, i) => ({ k, d: Math.abs(coarse.t[i] - w.t0) })).filter((x) => x.k).sort((a, b) => a.d - b.d)[0];
+      if (near) { const c = centerOf(near.k); prevC = [(c[0] - crop.x) / crop.w, (c[1] - crop.y) / crop.h]; }
+    }
     for await (const { idx, t, frame } of src.frames({ from: w.t0, to: w.t1, signal })) {
       aborted();
       dctx.imageSmoothingQuality = 'high';
       src.drawCrop(frame, dctx, crop, dcv.width, dcv.height);
-      let kp = pose.detect(dcv);
+      let kp = pose.detect(dcv, multi ? { multi: true, near: prevC } : {});
+      if (kp && multi) prevC = centerOf(kp);
       if (kp) {
         for (let i = 0; i < 33; i++) { kp[i * 3] = crop.x + kp[i * 3] * crop.w; kp[i * 3 + 1] = crop.y + kp[i * 3 + 1] * crop.h; }
         miss = 0;
@@ -168,7 +210,7 @@ export async function runAnalysis(file, opts, cb = {}) {
   }
   src.dispose();
   stage('analyze', 0.8, 'Calcolo stacchi e atterraggi…');
-  const params = { cal: opts.cal, testType: opts.testType, heightCm: opts.heightCm, massKg: opts.massKg, boxCm: opts.boxCm };
+  const params = { cal: opts.cal, testType: opts.testType, heightCm: opts.heightCm, massKg: opts.massKg, boxCm: opts.boxCm, leg: opts.leg };
   reanalyze(session, params);
   if (opts.refine !== false && session.jumps.some((j) => !j.manual)) {
     try { await refineEvents(session, opts, { stage, onPreview: cb.onPreview, log }, aborted); }
@@ -215,7 +257,9 @@ async function refineEvents(session, opts, cb, aborted) {
         const f = win.frames[i];
         const bmp = await createImageBitmap(f.blob);
         ctx.drawImage(bmp, 0, 0, cv.width, cv.height); bmp.close?.();
-        const kp = rp.detect(cv, { flip: true });
+        let opt = { flip: true };
+        if ((session.people || 1) > 1 && f.kp) opt = { flip: true, multi: true, near: centerOf(remapToCrop(f.kp, win.crop)) };
+        const kp = rp.detect(cv, opt);
         if (kp) {
           const crop = win.crop;
           const view = new Float32Array(kp);
@@ -270,7 +314,7 @@ export function reanalyze(session, p = {}) {
   session.cal = cal;
   session.params = {
     testType: p.testType ?? session.opts.testType, heightCm: p.heightCm ?? session.opts.heightCm,
-    massKg: p.massKg ?? session.opts.massKg, boxCm: p.boxCm ?? session.opts.boxCm,
+    massKg: p.massKg ?? session.opts.massKg, boxCm: p.boxCm ?? session.opts.boxCm, leg: p.leg ?? session.opts.leg,
   };
   session.results = [];
   let id = 1;

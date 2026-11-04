@@ -3,6 +3,7 @@
 import { h, icon, ic, fmt, toast, confirmSheet } from './dom.js';
 import { store } from '../store.js';
 import { TEST_TYPES, summarizeSeries } from '../engine/jumps.js';
+import { openGuide } from './guide.js';
 import { reanalyze, editJump, addJump } from '../engine/pipeline.js';
 import { FramePlayer } from './player.js';
 import { TrajectoryChart } from './chart.js';
@@ -47,6 +48,19 @@ export const review = {
     const metricsBox = h('div', { class: 'metrics' });
     const issuesBox = h('div');
     const seriesBox = h('div', { class: 'card hide' });
+    const qualityBox = h('div', { class: 'card hide' });
+    const drawQuality = () => {
+      const q = session.quality;
+      if (!q || !q.items?.length) { qualityBox.classList.add('hide'); return; }
+      const mark = { ok: '✓', info: 'i', warn: '!', bad: '✕' };
+      const issues = q.items.filter((x) => x.level === 'warn' || x.level === 'bad').length;
+      qualityBox.classList.remove('hide');
+      qualityBox.replaceChildren(
+        h('details', { class: 'acc', open: issues > 0, style: { borderTop: 0, padding: 0 } },
+          h('summary', {}, h('span', {}, 'Qualità della ripresa' + (q.view ? ` · ${q.view}` : '') + (issues ? ` · ${issues} ${issues === 1 ? 'avviso' : 'avvisi'}` : ' · ottima')), ic('chev')),
+          ...q.items.map((x) => h('div', { class: 'qrow ' + x.level }, h('b', {}, mark[x.level]), h('div', {}, x.text))),
+          h('button', { class: 'btn sm ghost', style: { marginTop: '10px' }, onclick: () => openGuide(session.params?.testType || 'general') }, ic('info'), 'Come migliorare la ripresa')));
+    };
     const chartBox = h('div', { class: 'chartbox' });
     const frameInfo = h('div', { class: 'small muted num', style: { textAlign: 'center', margin: '8px 0 2px' } });
     const bannerBox = h('div');
@@ -163,10 +177,17 @@ export const review = {
       add('Pedana (stima)', fmt.num(L(j.boxCm).v, 0), L(0).u, Number.isFinite(j.boxCm));
       add('Forza media spinta', fmt.num(j.forceN, 0), 'N', Number.isFinite(j.forceN));
       add('Potenza media', fmt.num(j.powerW, 0), 'W', Number.isFinite(j.powerW));
-      add('Potenza di picco (Sayers)', fmt.num(j.sayersW, 0), 'W', Number.isFinite(j.sayersW));
+      add('Forza media (per kg)', fmt.num(j.forceRel, 1), 'N/kg', Number.isFinite(j.forceRel));
+      add('Potenza media (per kg)', fmt.num(j.powerRel, 1), 'W/kg', Number.isFinite(j.powerRel));
+      add('Velocità media di spinta', fmt.num(j.vMean, 2), 'm/s', Number.isFinite(j.vMean) && Number.isFinite(j.forceN));
+      add('FT:CT (volo / tempo al decollo)', fmt.num(j.ftct, 2), '', Number.isFinite(j.ftct) && TEST_TYPES[session.params.testType]?.needsDip);
+      add('Potenza di picco (Sayers 1999, equazione SJ)', fmt.num(j.sayersW, 0), 'W', Number.isFinite(j.sayersW));
       add('Risoluzione ±1 frame', '±' + fmt.num(L(j.frameCm).v, 1), L(0).u);
       add('Altezza corretta per postura', fmt.num(L(j.heightCorrCm).v, 1), L(0).u, Number.isFinite(j.heightCorrCm) && (j.issues || []).some((x) => x.code === 'landflex'));
-      metricsBox.replaceChildren(...m);
+      const notes = [];
+      if (Number.isFinite(j.rsi)) notes.push('RSI = altezza (da tempo di volo) / contatto: confronta atleti diversi con cautela (sovrastima sotto 1,0, sottostima sopra 1,0 rispetto al calcolo da velocità di stacco).');
+      if (Number.isFinite(j.forceN)) notes.push('Forza e potenza sono stime (Samozino 2008): dipendono da massa, altezza dell\'atleta e corsa di spinta misurata dal bacino. Utili per confrontare nel tempo, non come misura di laboratorio.');
+      metricsBox.replaceChildren(...m, ...(notes.length ? [h('p', { class: 'tiny faint', style: { margin: '10px 0 0' } }, notes.join(' '))] : []));
       issuesBox.replaceChildren(...j.issues.map((x) => h('div', { class: 'issue ' + x.level, html: icon(x.level === 'info' ? 'info' : 'alert') }, h('div', {}, x.text))));
       if (!j.issues.length) issuesBox.append(h('div', { class: 'issue info', html: icon('check') }, h('div', {}, 'Nessuna anomalia: tempi, traiettoria e visibilità dei piedi sono coerenti.')));
       // banner calibrazione
@@ -185,6 +206,7 @@ export const review = {
             h('tr', {}, ...['#', 'H ' + L(0).u, 'Volo', 'Contatto', 'RSI'].map((x) => h('th', {}, x))),
             ...jumps().map((x, i) => h('tr', { style: { opacity: x.excluded ? 0.4 : 1, cursor: 'pointer', color: i === selIdx ? 'var(--accent)' : '' }, onclick: () => select(i) },
               h('td', {}, i + 1), h('td', {}, L(x.heightCm).v.toFixed(1)), h('td', {}, fmt.ms(x.T)), h('td', {}, fmt.ms(x.contact)), h('td', {}, fmt.num(x.rsi, 2)))),
+            h('tr', { class: 'faint', style: { fontSize: '12px' } }, h('td', { colSpan: 5 }, `Variabilità (CV): ${fmt.num(sum.cvPct, 1)} %` + (Number.isFinite(sum.declinePct) ? ` · calo di altezza primo→ultimo terzo: ${fmt.num(sum.declinePct, 1)} %` : ''))),
             h('tr', { style: { fontWeight: 800 } }, h('td', {}, 'Media'), h('td', {}, L(sum.meanCm).v.toFixed(1)), h('td', {}, fmt.ms(mean(active.map((x) => x.T)))), h('td', {}, fmt.ms(sum.meanContact)), h('td', {}, fmt.num(sum.meanRsi, 2)))));
       } else seriesBox.classList.add('hide');
       updateBadge();
@@ -277,9 +299,9 @@ export const review = {
         c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
         thumb = c.toDataURL('image/jpeg', 0.7);
       } catch { /* miniatura facoltativa */ }
-      const pick = (j) => ({ to: j.to, td: j.td, T: j.T, heightCm: j.heightCm, contact: j.contact, rsi: j.rsi, rsiFlight: j.rsiFlight, rsiMod: j.rsiMod, dipCm: j.dipCm, v0: j.v0, boxCm: j.boxCm, forceN: j.forceN, powerW: j.powerW, sayersW: j.sayersW, confidence: j.confidence, manual: !!j.manual, uncCm: j.uncCm, heightCorrCm: j.heightCorrCm, refined: !!j.refined });
+      const pick = (j) => ({ to: j.to, td: j.td, T: j.T, heightCm: j.heightCm, contact: j.contact, rsi: j.rsi, rsiFlight: j.rsiFlight, rsiMod: j.rsiMod, dipCm: j.dipCm, v0: j.v0, boxCm: j.boxCm, forceN: j.forceN, powerW: j.powerW, sayersW: j.sayersW, confidence: j.confidence, manual: !!j.manual, uncCm: j.uncCm, heightCorrCm: j.heightCorrCm, refined: !!j.refined, ftct: j.ftct, forceRel: j.forceRel, powerRel: j.powerRel });
       const rec = {
-        id: store.uid(), date: Date.now(), athleteId: ath.id, athleteName: ath.name, testType: session.params.testType, leg: S.leg,
+        id: store.uid(), date: Date.now(), athleteId: ath.id, athleteName: ath.name, testType: session.params.testType, leg: S.leg, view: session.quality?.view || null,
         fileName: session.meta.name, fps: session.meta.fps, cal: session.cal, heightCm: session.params.heightCm,
         jumps: used.map(pick), best: best.heightCm, thumb,
       };
@@ -295,7 +317,7 @@ export const review = {
         h('div', { class: 'row small muted', style: { marginTop: '8px', gap: '14px' } },
           h('span', {}, h('b', { style: { color: 'var(--accent)' } }, '━ '), 'piedi sopra il suolo'),
           h('span', {}, h('b', { style: { color: '#fff' } }, '━ '), 'bacino'))));
-    const right = h('div', { class: 'stack' }, bannerBox, hero, h('div', { class: 'card' }, h('h3', {}, 'Metriche'), metricsBox, issuesBox), seriesBox, settingsBox);
+    const right = h('div', { class: 'stack' }, bannerBox, qualityBox, hero, h('div', { class: 'card' }, h('h3', {}, 'Metriche'), metricsBox, issuesBox), seriesBox, settingsBox);
     root.append(pills, h('div', { class: 'cols', style: { marginTop: '12px' } }, left, right),
       h('div', { class: 'sticky' }, h('div', { class: 'in' },
         h('button', { class: 'btn', style: { flex: 1 }, onclick: async () => { if (await confirmSheet({ title: 'Scartare l’analisi?', text: 'Il risultato non verrà salvato.', ok: 'Scarta', danger: true })) { app.session = null; app.go('#/'); } } }, 'Scarta'),
@@ -310,6 +332,7 @@ export const review = {
     };
     addEventListener('keydown', this._key);
     this._player = player;
+    drawQuality();
     select(0);
   },
   dispose() { removeEventListener('keydown', this._key); this._player?.dispose(); document.getElementById('app')?.classList.remove('wide'); },
