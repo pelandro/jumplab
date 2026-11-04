@@ -76,3 +76,15 @@ if ('serviceWorker' in navigator && location.protocol.startsWith('http') && loca
   navigator.serviceWorker.register('./sw.js').catch(() => {});
 }
 window.__app = app;
+
+// Rete di sicurezza contro lo zoom al doppio tocco: su iOS, due tocchi ravvicinati su un pulsante (es. «+1 frame») possono ancora attivare
+// lo zoom anche con touch-action. Il secondo tocco blocca lo zoom e invia comunque il clic al pulsante, quindi ogni tocco conta.
+let lastTouchEnd = 0;
+document.addEventListener('touchend', (e) => {
+  const now = Date.now();
+  if (now - lastTouchEnd < 350) {
+    const b = e.target.closest?.('button,[role=button],summary');
+    if (b && !e.target.closest('input,select,textarea') && !b.disabled) { e.preventDefault(); b.click(); }
+  }
+  lastTouchEnd = now;
+}, { passive: false });

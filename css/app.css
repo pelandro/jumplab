@@ -153,3 +153,9 @@ details.acc summary::-webkit-details-marker{display:none}
 .infobtn:active{color:var(--accent);border-color:var(--accent)}
 .qrow{display:flex;gap:10px;font-size:13px;line-height:1.4;margin-top:8px;color:var(--muted)}.qrow b{flex:none;width:18px;text-align:center}
 .qrow.ok b{color:var(--accent)}.qrow.warn{color:#ffd9a0}.qrow.bad{color:#ffb3b3}
+
+/* Niente zoom al doppio tocco (iOS Safari) né selezione di testo sui comandi: restano il pizzico a due dita e lo scroll */
+html,body{touch-action:manipulation}
+button,.btn,.chip,.pill,.test,.infobtn,.ctrl,.seg,.item,summary,label,.tabbar,.stagebox,.hero,.metric,.top{touch-action:manipulation;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
+input,textarea,select,pre,.sel{-webkit-user-select:text;user-select:text}
+.stagebox canvas,.chartbox{touch-action:none}
