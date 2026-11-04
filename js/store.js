@@ -1,7 +1,9 @@
 // Persistenza locale (localStorage) di impostazioni, atleti e sessioni salvate. Nessun video viene salvato.
 
 const KEY = 'jumplab.v4';
+// Da aggiornare ad ogni modifica del codice: serve a capire a colpo d'occhio se l'app è aggiornata.
 export const VERSION = '4.2';
+export const BUILD = '2026-11-04';
 
 const DEFAULTS = () => ({
   settings: { units: 'cm', model: 'full', delegate: 'auto', skeleton: true, refine: true },

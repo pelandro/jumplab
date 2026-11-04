@@ -1,5 +1,5 @@
 import { h, icon, ic, sheet, toast, confirmSheet, downloadFile } from './dom.js';
-import { store, VERSION } from '../store.js';
+import { store, VERSION, BUILD } from '../store.js';
 import { MODELS, isIOS } from '../engine/pose.js';
 
 export const profile = {
@@ -42,7 +42,7 @@ export const profile = {
           } })),
         h('button', { class: 'btn danger', onclick: async () => { if (await confirmSheet({ title: 'Cancellare tutti i dati?', text: 'Atleti, sessioni e preferenze verranno eliminati da questo dispositivo.', ok: 'Cancella tutto', danger: true })) { try { localStorage.removeItem('jumplab.v4'); } catch {} location.reload(); } } }, ic('trash'), 'Cancella tutti i dati')),
       h('div', { class: 'sec' }, 'Informazioni'),
-      h('div', { class: 'small faint', style: { margin: '0 0 8px' } }, `Jump Lab v${VERSION}`),
+      h('div', { class: 'small faint', style: { margin: '0 0 8px' } }, `Jump Lab v${VERSION} · compilazione ${BUILD}`),
       h('div', { class: 'card small muted', html: 'Jump Lab elabora i video <b>solo sul tuo dispositivo</b>: niente upload, nessun account. Stima l’altezza dal tempo di volo (h = g·t²/8). I risultati sono stime: non sostituiscono una pedana di forza o un sistema certificato.' }),
     );
     drawList();

@@ -1,5 +1,5 @@
 import { h, icon, ic, sheet, put } from './dom.js';
-import { store } from '../store.js';
+import { store, VERSION } from '../store.js';
 import { TEST_TYPES } from '../engine/jumps.js';
 import { openCamera } from './camera.js';
 
@@ -41,7 +41,7 @@ export const home = {
 
     put(root,
       h('div', { class: 'top' },
-        h('div', { class: 'brand' }, h('i'), 'Jump Lab'),
+        h('div', { class: 'brand' }, h('i'), 'Jump Lab', h('small', { class: 'faint', style: { marginLeft: '8px', fontSize: '11px', fontWeight: 600, letterSpacing: '.02em' } }, `v${VERSION}`)),
         h('button', { class: 'chip', onclick: () => app.go('#/profile') }, ic('user'), ath.name)),
       h('div', { class: 'sec', style: { marginTop: 0 } }, 'Tipo di test'),
       grid, opts,
