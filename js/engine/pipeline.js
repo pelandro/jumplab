@@ -398,7 +398,14 @@ function applyFlowInfo(session) {
     for (const j of [...res.jumps]) {
       if (j.manual) continue;
       const pTo = posOf(tc, j.to), pTd = posOf(tc, j.td);
-      const info = infos.find((x) => x.leg === (session.params?.leg || 'both') && Math.abs(x.posToLm - pTo) <= 2.5 && Math.abs(x.posTdLm - pTd) <= 2.5);
+      // abbinamento in tempo fisico (non in fotogrammi): dopo una nuova calibrazione l'analisi dei landmark cambia (finestre in secondi) e gli eventi
+      // si spostano; si sceglie il salto salvato più vicino entro 150 ms
+      let info = null, bestD = Infinity;
+      for (const x of infos) {
+        if (x.leg !== (session.params?.leg || 'both')) continue;
+        const d = (Math.abs(x.posToLm - pTo) + Math.abs(x.posTdLm - pTd)) * dtc;
+        if (d < bestD && Math.abs(x.posToLm - pTo) * dtc <= 0.15 && Math.abs(x.posTdLm - pTd) * dtc <= 0.15) { bestD = d; info = x; }
+      }
       if (!info) { noPixel(j, dtc); continue; }
       let to = j.to, td = j.td, srcTo = 'landmark', srcTd = 'landmark';
       const toPx = info.posTo != null ? timeAt(tc, info.posTo) : null, tdPx = info.posTd != null ? timeAt(tc, info.posTd) : null;
@@ -411,9 +418,18 @@ function applyFlowInfo(session) {
       editJump(session, j, to, td, false);
       // incertezza: floor di ±0,35 fotogrammi per evento + metà della discordanza tra i due stimatori e dispersione tra i piedi
       const sp = (q) => (q ? q.spread / 2 : 0);
-      j.uncT = Math.hypot(Math.SQRT2 * 0.35 * dtc, 0.5 * (to - toLm), 0.5 * (td - tdLm), sp(info.qTo), sp(info.qTd));
+      const both = srcTo === 'pixel' && srcTd === 'pixel';
+      if (both) {
+        // entrambi gli eventi dai pixel: il landmark non entra (è il metodo scartato). Per evento: passo temporale (±0,25 fotogrammi), dispersione
+        // tra i due piedi e un minimo di 5 ms per la definizione stessa di contatto (inizio della frenata vs arresto della punta, misurato 5–8 ms).
+        // Stima euristica, non validata contro una pedana.
+        const ev = (q) => Math.hypot(0.25 * dtc, 0.005, sp(q));
+        j.uncT = Math.hypot(ev(info.qTo), ev(info.qTd));
+      } else {
+        j.uncT = Math.hypot(Math.SQRT2 * 0.35 * dtc, 0.5 * (to - toLm), 0.5 * (td - tdLm), sp(info.qTo), sp(info.qTd));
+      }
       j.uncCm = ((9.80665 * j.T * j.uncT) / 4) * 100;
-      j.flow = { toLm, tdLm, dTo: to - toLm, dTd: td - tdLm, src: { to: srcTo, td: srcTd } };
+      j.flow = { toLm, tdLm, dTo: to - toLm, dTd: td - tdLm, src: { to: srcTo, td: srcTd }, pixelBoth: both };
       const big = Math.max(Math.abs(to - toLm), Math.abs(td - tdLm));
       if (big > Math.max(0.03, 3 * dtc)) {
         j.issues.push({ level: 'info', code: 'flowdiff', text: `Il tracciamento dei pixel del piede e i landmark del modello differiscono (stacco ${((to - toLm) * 1000).toFixed(0)} ms, atterraggio ${((td - tdLm) * 1000).toFixed(0)} ms): usati i pixel, che seguono il piede reale.` });
@@ -434,6 +450,7 @@ function applyRefineInfo(session) {
     res.jumps.forEach((j, k) => {
       if (!info[k]) return;
       j.refined = true;
+      if (j.flow?.pixelBoth) return; // la rifinitura dei landmark non riguarda gli eventi presi dai pixel
       j.uncT = Math.hypot(j.uncT || 0, 0.5 * info[k].rel * j.T);
       j.uncCm = ((9.80665 * j.T * j.uncT) / 4) * 100;
     });

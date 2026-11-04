@@ -261,3 +261,19 @@ TrackJump (o qualunque app) **non è una verità**: quantizza a fotogrammi inter
 3. **Ripetibilità**: dimezzando/riducendo i fps dello stesso video reale il volo cambia di 1–6 ms (landmark: fino a 213 ms). Misura la precisione, non l'assenza di errore sistematico.
 4. **Coerenza fisica**: parabola del bacino in volo, controlli di postura e di gravità.
 **Non dimostrato**: l'errore assoluto rispetto a una misura strumentale (pedana, interruttori a contatto, accelerometro). Protocollo economico proposto per ottenerlo: un secondo telefono con un'app di accelerometro (es. Phyphox, ~100 Hz) legato alla vita registra l'atterraggio e il volo libero (accelerazione ≈ 0 in volo) in contemporanea al video; inoltre un test di **caduta di una palla** da altezza nota (t = √(2h/g)) a 240 fps per verificare tutta la catena dei tempi.
+
+### Video vero ad alta frequenza a frame rate variabile (IMG_0180 originale, iPhone 16, 1080p, 447 fotogrammi in 2,46 s, passo 4,2–8,3 ms ≈ 240/120 fps, tempi reali del file)
+È la prima misura con fotogrammi veri a 4–8 ms (le precedenti a 120 fps erano uno slow-mo appiattito con fattore stimato).
+
+| Stimatore | Stacco | Atterraggio | Volo | Altezza |
+|---|---|---|---|---|
+| Landmark Heavy + specchio | 1,557 s | 2,207 s | 0,650 s | 51,8 cm |
+| Landmark Full | 1,560 s | 2,213 s | 0,653 s | 52,3 cm |
+| **Pixel del piede** (inizializzato da Heavy o da Full) | **1,544 s** | **2,162 s** | **0,618–0,620 s** | **46,8–47,1 cm** |
+| App completa (WebCodecs, VFR, 223 fotogrammi analizzati) | 1,544 s | 2,163 s | 0,619 s | 47,0 cm |
+
+- I pixel danno lo stesso volo con Heavy e Full e decimando a 120 e 60 fps (±1 ms) e a 30 fps (0,625 s); i landmark da 0,636 a 0,695 s (fino a 59,3 cm con Heavy a 40 fps).
+- Evidenza fisica: all'atterraggio le punte scendono di ~36 px e **restano ferme dal 2,17 s** (36,6 px a 2,175 s, 36,7 px a 2,26 s); i landmark indicavano 2,207 s, cioè 35–45 ms dopo che il piede era fermo. Allo stacco le punte sono ferme fino a 1,533 s e partono a 1,542 s; i landmark 1,557–1,570 s.
+- Lo slow-mo appiattito dello stesso gesto (fattore ×4 suggerito dalla gravità) dà con i pixel 0,627 s (48,2 cm): 8 ms di differenza, compatibili con un fattore reale di ~4,05. Con i landmark dava 55,4 cm.
+- Errore dei landmark su questo atleta/scarpe (punte bianche, calze nere, pavimento scuro, atterraggio sulle punte): stacco +13…+26 ms, atterraggio +35…+50 ms in ritardo, quindi volo sovrastimato di circa 30 ms (+5 cm). Può dipendere dall'atleta e dalle scarpe: **non generalizzabile** senza altri atleti.
+- Limite: il «contatto» dai pixel è l'intersezione rampa-plateau (~5–8 ms prima dell'arresto completo della punta); l'incertezza dichiarata include almeno 5 ms per evento. È una stima, non validata contro una pedana.
