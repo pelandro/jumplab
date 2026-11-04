@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="it"><head><meta charset="utf-8"><title>Jump Lab · test motore</title>
+<style>
+body{font:13px/1.45 system-ui,sans-serif;background:#0b0e11;color:#e8eef5;margin:0;padding:18px}
+h1{font-size:18px;margin:0 0 4px}p{color:#9fb0c2;max-width:760px}
+table{border-collapse:collapse;margin:14px 0;font-variant-numeric:tabular-nums}
+th,td{border:1px solid #26323f;padding:5px 9px;text-align:right}th:first-child,td:first-child{text-align:left}
+th{background:#16202a}.ok{color:#c6f24e}.bad{color:#ff7b7b}.warn{color:#ffd166}
+</style></head><body>
+<h1>Test del motore di analisi (dati sintetici)</h1>
+<p>Atleta simulato con fisica balistica, rumore dei landmark, buchi e outlier. Verifica la matematica di
+rilevamento e misura, <b>non</b> la qualità del modello di postura su video reali.</p>
+<div id="out">In esecuzione…</div>
+<script type="module">
+import { analyze } from '../js/engine/jumps.js';
+import { buildScenario, renderTrack } from './sim.js';
+
+const g = 9.80665;
+const rows = [];
+const stats = (a) => { if (!a.length) return { mean: NaN, p95: NaN, max: NaN }; const s = [...a].sort((x, y) => x - y); return { mean: a.reduce((x, y) => x + y, 0) / a.length, p95: s[Math.min(s.length - 1, Math.floor(0.95 * (s.length - 1)))], max: s[s.length - 1] }; };
+
+const kinds = ['cmj', 'sj', 'dj', 'rebound'];
+const fpsList = [30, 60, 120, 240];
+const Ts = [0.35, 0.5, 0.65];
+const seeds = [1, 2, 3, 4, 5, 6];
+let totalFail = 0;
+for (const kind of kinds) for (const fps of fpsList) {
+  const errMs = [], errPct = [], cErr = [], dipErr = [], cmFlags = [];
+  let expected = 0, found = 0, extra = 0;
+  for (const T of Ts) for (const seed of seeds) {
+    const scn = buildScenario(kind, { T });
+    const track = renderTrack(scn, { fps, seed: seed * 7 + fps, noise: fps <= 60 ? 0.003 : 0.0025 });
+    const res = analyze(track, { testType: kind, heightCm: 175 });
+    const truth = scn.truth.filter((x) => x.to !== undefined);
+    expected += truth.length;
+    const contacts = scn.truth.filter((x) => x.contact !== undefined);
+    const used = new Set();
+    for (const tr of truth) {
+      const j = res.jumps.find((jj, idx) => !used.has(idx) && Math.abs(jj.to - tr.to) < 0.15);
+      if (!j) continue;
+      used.add(res.jumps.indexOf(j)); found++;
+      errMs.push(Math.abs(j.T - (tr.td - tr.to)) * 1000);
+      const hT = (g * (tr.td - tr.to) ** 2) / 8 * 100;
+      errPct.push(Math.abs(j.heightCm - hT) / hT * 100);
+      const c = contacts.find((cc) => Math.abs(cc.contactStart + cc.contact - tr.to) < 0.02);
+      if (c && j.contact != null) cErr.push(Math.abs(j.contact - c.contact) * 1000);
+      if ((kind === 'cmj' || kind === 'sj') && Number.isFinite(j.dipCm)) dipErr.push(Math.abs(j.dipCm - 30));
+      if (kind === 'sj') cmFlags.push(j.cmDetected ? 1 : 0);
+    }
+    extra += res.jumps.length - used.size;
+  }
+  const e = stats(errMs), p = stats(errPct), c = stats(cErr);
+  // soglie attese: errore di 1 frame come riferimento
+  const frameMs = 1000 / fps;
+  const dp = stats(dipErr);
+  const pass = found === expected && extra === 0 && e.mean < Math.max(frameMs * 0.9, 5) && (!dipErr.length || dp.mean < 4);
+  if (!pass) totalFail++;
+  rows.push({ kind, fps, found: `${found}/${expected}`, extra, eMean: e.mean, eP95: e.p95, pMean: p.mean, pP95: p.p95, cMean: c.mean, cN: cErr.length, dipMean: dp.mean, cmSj: cmFlags.length ? cmFlags.reduce((a, b) => a + b, 0) : null, pass });
+}
+// Rilevamento di video rallentato: stesso salto con tempi moltiplicati per 4 e 8
+const slowRows = [];
+for (const s of [1, 2, 4, 8]) {
+  const hints = [];
+  for (const seed of [1, 2, 3, 4]) {
+    const tr = renderTrack(buildScenario('cmj', { T: 0.5 }), { fps: 240, seed, noise: 0.0025 });
+    tr.t = tr.t.map((x) => x * s);
+    const res = analyze(tr, { testType: 'cmj', heightCm: 175, maxFlight: 12 });
+    hints.push(res.jumps[0]?.timeScaleHint ?? 0);
+  }
+  const ok = s === 1 ? hints.every((x) => x === 0) : hints.every((x) => x === s);
+  if (!ok) totalFail++;
+  slowRows.push(`<tr><td>rallentato ${s}×</td><td>${hints.join(', ')}</td><td class="${ok ? 'ok' : 'bad'}">${ok ? 'OK' : 'KO'}</td></tr>`);
+}
+// Deriva del suolo: atleta ripreso di fronte che si avvicina alla camera (i piedi scendono nell'immagine
+// di 0,03 altezze-fotogramma tra inizio e fine). Caso reale che la v4.0 iniziale perdeva o misurava male.
+const driftRows = [];
+for (const fps of [30, 60, 240]) for (const drift of [0.02, 0.04]) {
+  const errs = []; let found = 0, tot = 0;
+  for (const T of [0.4, 0.55]) for (const seed of [1, 2, 3]) {
+    const scn = buildScenario('cmj', { T });
+    const tr = renderTrack(scn, { fps, seed: seed * 11 + fps, noise: fps <= 60 ? 0.003 : 0.0025 });
+    const t0 = tr.t[0], span = tr.t[tr.t.length - 1] - t0;
+    tr.kp = tr.kp.map((k, i) => { if (!k) return k; const o = Float32Array.from(k); const dy = drift * (tr.t[i] - t0) / span; for (let q = 0; q < 33; q++) o[q * 3 + 1] += dy; return o; });
+    const res = analyze(tr, { testType: 'cmj', heightCm: 175 });
+    const truth = scn.truth.filter((x) => x.to !== undefined); tot += truth.length;
+    for (const x of truth) { const j = res.jumps.find((jj) => Math.abs(jj.to - x.to) < 0.15); if (j) { found++; errs.push(Math.abs(j.T - (x.td - x.to)) * 1000); } }
+  }
+  const mean = errs.length ? errs.reduce((a, b) => a + b, 0) / errs.length : NaN;
+  const ok = found === tot && mean < Math.max(1000 / fps * 0.9, 5);
+  if (!ok) totalFail++;
+  driftRows.push(`<tr><td>deriva ${drift}</td><td>${fps}</td><td>${found}/${tot}</td><td>${Number.isFinite(mean) ? mean.toFixed(1) : '—'}</td><td class="${ok ? 'ok' : 'bad'}">${ok ? 'OK' : 'KO'}</td></tr>`);
+}
+const f = (x, d = 1) => (Number.isFinite(x) ? x.toFixed(d) : '—');
+document.getElementById('out').innerHTML =
+  `<table><tr><th>Test</th><th>fps</th><th>Voli trovati</th><th>Falsi</th><th>Err. T medio (ms)</th><th>Err. T p95 (ms)</th><th>Err. altezza medio %</th><th>p95 %</th><th>Err. contatto (ms)</th><th>Err. dip (cm)</th><th>SJ con CM falso</th><th>Esito</th></tr>` +
+  rows.map((r) => `<tr><td>${r.kind}</td><td>${r.fps}</td><td>${r.found}</td><td>${r.extra}</td><td>${f(r.eMean)}</td><td>${f(r.eP95)}</td><td>${f(r.pMean)}</td><td>${f(r.pP95)}</td><td>${f(r.cMean)} (n=${r.cN})</td><td>${f(r.dipMean)}</td><td>${r.cmSj ?? '—'}</td><td class="${r.pass ? 'ok' : 'bad'}">${r.pass ? 'OK' : 'KO'}</td></tr>`).join('') +
+  `</table><h2 style="font-size:15px">Controllo di coerenza con la gravità (suggerimento di calibrazione)</h2><table><tr><th>Scenario</th><th>Suggerimento (4 prove)</th><th>Esito</th></tr>${slowRows.join('')}</table><h2 style="font-size:15px">Deriva del suolo (atleta che si avvicina alla camera)</h2><table><tr><th>Scenario</th><th>fps</th><th>Voli trovati</th><th>Err. T medio (ms)</th><th>Esito</th></tr>${driftRows.join('')}</table><p class="${totalFail ? 'bad' : 'ok'}">${totalFail ? totalFail + ' scenari fuori soglia' : 'Tutti gli scenari entro soglia'}</p>`;
+window.__results = { rows, totalFail };
+</script></body></html>

@@ -1,0 +1,16 @@
+{
+  "name": "Jump Lab · Altezza del salto & RSI",
+  "short_name": "Jump Lab",
+  "description": "Misura altezza del salto, tempo di volo, contatto e RSI da video con tracciamento del corpo sul dispositivo.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#090c0f",
+  "theme_color": "#090c0f",
+  "lang": "it",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
