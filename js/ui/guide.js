@@ -44,7 +44,7 @@ const COMMON = [
 
 const VIEW = ['Frontale o laterale?', [
   '<b>Laterale (90°)</b>: la migliore. Si vedono flessione di ginocchia e anche, profondità del contromovimento, talloni e punte, la pedana nei drop jump, e l\'atleta non si avvicina alla camera.',
-  '<b>Frontale</b>: va bene per <b>altezza e tempo di volo</b>. Contatto, profondità e flessione sono meno precisi, e se l\'atleta si avvicina alla camera il pavimento "scivola" (l\'app lo compensa, ma con più incertezza).',
+  '<b>Frontale</b>: va bene per <b>altezza e tempo di volo</b>. Misurato sui nostri video (2 atleti): con il tracciamento dei pixel del piede lo stacco è risultato più ripetibile in frontale (≈2 ms) che in laterale (10–16 ms, perché il piede ruota); l\'atterraggio ≈1–3 ms in entrambe. Contatto, profondità e flessione sono meno precisi, e se l\'atleta si avvicina alla camera il pavimento "scivola" (l\'app lo compensa, ma con più incertezza).',
   '<b>Obliqua</b>: utilizzabile, ma evitala se puoi.',
 ]];
 

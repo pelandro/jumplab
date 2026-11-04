@@ -277,3 +277,20 @@ TrackJump (o qualunque app) **non è una verità**: quantizza a fotogrammi inter
 - Lo slow-mo appiattito dello stesso gesto (fattore ×4 suggerito dalla gravità) dà con i pixel 0,627 s (48,2 cm): 8 ms di differenza, compatibili con un fattore reale di ~4,05. Con i landmark dava 55,4 cm.
 - Errore dei landmark su questo atleta/scarpe (punte bianche, calze nere, pavimento scuro, atterraggio sulle punte): stacco +13…+26 ms, atterraggio +35…+50 ms in ritardo, quindi volo sovrastimato di circa 30 ms (+5 cm). Può dipendere dall'atleta e dalle scarpe: **non generalizzabile** senza altri atleti.
 - Limite: il «contatto» dai pixel è l'intersezione rampa-plateau (~5–8 ms prima dell'arresto completo della punta); l'incertezza dichiarata include almeno 5 ms per evento. È una stima, non validata contro una pedana.
+
+
+### Secondo atleta e ripresa laterale (IMG_0207, IMG_0208: 170 cm, CMJ, laterale, 240/120 fps VFR, tempi reali; app v4.4.1)
+Prima ripresa **laterale** reale e primo atleta diverso. L'app riconosce la vista come «laterale».
+
+| Video | Landmark (offline, Heavy+specchio / Full) | Pixel (offline) | App completa (pixel) |
+|---|---|---|---|
+| IMG_0207 | volo 0,612–0,630 s (45,9–48,7 cm) | 0,599–0,609 s (44,0–45,5 cm) | **0,606 s, 45,0 ± 1,2 cm** |
+| IMG_0208 | volo 0,597–0,609 s (43,7–45,4 cm) | 0,581–0,597 s (41,4–43,7 cm) | **0,580 s, 41,3 ± 1,6 cm** |
+
+- I landmark danno un volo **più lungo di 14–30 ms (+3–5 cm)** dei pixel anche su questo atleta; ma con **segno diverso** sugli eventi: qui anticipano lo stacco (−9…−21 ms) e atterrano 2–19 ms in anticipo, mentre nell'atleta 1 ritardavano entrambi. Non esiste una correzione fissa.
+- Tracce dei pixel: la punta è ferma fino a ~1,29 s e parte con rampa ripida da ~1,30 s (IMG_0207); all'atterraggio scende di ~21 px e resta ferma dal 1,904 s. Pixel 1,3004 / 1,9011 s; landmark 1,281–1,291 / 1,906–1,911 s.
+- **Ripetibilità** (stesso video, fotogrammi diversi): atterraggio ±1–3 ms in entrambe le viste; **stacco ±2 ms in frontale, ±10–16 ms in laterale** (il piede ruota e il template matching segue peggio; un caso a 30 fps equivalenti: +27 ms). Per questo l'app misura la ripetibilità su 6 sottocampionamenti, usa la mediana, scarta l'evento se l'intervallo supera 30 ms e include metà dell'intervallo nell'incertezza.
+- Un controllo di copertura troppo rigido scartava lo stacco valido con campionamento irregolare (33 ms di rampa tracciata contro 37,5 richiesti): corretto.
+- La guida alla ripresa è stata aggiornata con questo risultato: la ripresa laterale resta utile per dip e contatti, ma con il tracciamento dei pixel lo stacco è più ripetibile in frontale.
+
+Limiti: 2 atleti, 5 salti reali; nessuna verità da pedana; stacco laterale meno preciso (±10–16 ms ≈ ±1,5–2,4 cm); non provato su iPhone/iPad.
