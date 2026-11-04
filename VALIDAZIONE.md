@@ -234,7 +234,7 @@ A 60/30 fps l'errore dei landmark si nasconde (non si risolve la fase di rotolam
 | Scene sintetiche con verità nota (texture, rumore σ≈3/255, landmark iniziali ±10 px, stima iniziale sbagliata fino a 50 ms, 30/60/120/240 fps, 24 salti) | 48/48 eventi trovati; errore stacco **≤ 0,7 ms**, atterraggio **2–4 ms** |
 | Zona senza texture | rifiuta (nessun evento) |
 | 20 fps | non usato |
-| Tuo salto a 60 fps (IMG_0181) | stacco 2,6406 s, atterraggio 3,1740 s → volo **0,5333 s = 32 fotogrammi: identico a TrackJump** (34,9 cm) |
+| Tuo salto a 60 fps (IMG_0181) | stacco 2,6406 s, atterraggio 3,1740 s → volo 0,5333 s (34,9 cm). **Questo non è una validazione**: TrackJump conta fotogrammi interi (32 a 60 fps, ±1 fotogramma = ±3 cm) e non è una verità; la concordanza dice solo che non c'è una discrepanza grande. Lo stesso salto con i landmark dava 0,524–0,536 s. |
 | Video a 120 fps decimato (120 → 60 → 40 → 30 fps equivalenti) | volo cambia al massimo di **5,7 ms** (i landmark: fino a 213 ms) |
 | Stesso salto a 60 fps decimato a 30 fps | cambia di 1–2 ms |
 | Stima iniziale volutamente sbagliata di 90 ms | stesso risultato |
@@ -252,3 +252,12 @@ A 60/30 fps l'errore dei landmark si nasconde (non si risolve la fase di rotolam
 - Le zone sono centrate sui landmark iniziali; scarpe scure su pavimento scuro a bassa risoluzione possono non dare un tracciamento affidabile (in quel caso si ricade sui landmark).
 - Non provato su iPhone/iPad: tempi di calcolo e supporto codec da misurare.
 - Il movimento della camera non è compensato (il tracciamento misura il movimento nell'immagine): usare un supporto fermo.
+
+
+### Su cosa si fonda (e su cosa NO) la validazione degli eventi
+TrackJump (o qualunque app) **non è una verità**: quantizza a fotogrammi interi e ha i propri bias. L'obiettivo è misurare meglio di lei, quindi le evidenze usate sono indipendenti:
+1. **Scene sintetiche con verità esatta** (30–240 fps, rumore, landmark errati): errore ≤ 0,7 ms stacco, 2–4 ms atterraggio.
+2. **Verifica visiva fotogramma per fotogramma** su un video reale a 120 fps (±1 fotogramma ≈ 8 ms; limite: la lettura è mia e già una volta mi sono sbagliato a occhio).
+3. **Ripetibilità**: dimezzando/riducendo i fps dello stesso video reale il volo cambia di 1–6 ms (landmark: fino a 213 ms). Misura la precisione, non l'assenza di errore sistematico.
+4. **Coerenza fisica**: parabola del bacino in volo, controlli di postura e di gravità.
+**Non dimostrato**: l'errore assoluto rispetto a una misura strumentale (pedana, interruttori a contatto, accelerometro). Protocollo economico proposto per ottenerlo: un secondo telefono con un'app di accelerometro (es. Phyphox, ~100 Hz) legato alla vita registra l'atterraggio e il volo libero (accelerazione ≈ 0 in volo) in contemporanea al video; inoltre un test di **caduta di una palla** da altezza nota (t = √(2h/g)) a 240 fps per verificare tutta la catena dei tempi.
