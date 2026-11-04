@@ -294,3 +294,23 @@ Prima ripresa **laterale** reale e primo atleta diverso. L'app riconosce la vist
 - **Vista e atleta sono confusi**: l'atleta 1 è stato ripreso solo frontalmente (suole bianche, calze nere), l'atleta 2 solo lateralmente (calze e scarpe bianche). La differenza di ripetibilità dello stacco (±2 ms contro ±10–16 ms) può dipendere dalla vista, dall'atleta o dalle scarpe: con questi dati **non si può attribuire alla vista**. Serve lo stesso atleta ripreso nelle due viste, nella stessa sessione, su più salti.
 
 Limiti: 2 atleti, 5 salti reali; nessuna verità da pedana; stacco nei video laterali meno ripetibile (±10–16 ms ≈ ±1,5–2,4 cm), causa non attribuibile (vista/atleta/scarpe); non provato su iPhone/iPad.
+
+### Riferimento di letteratura più vicino (letto dal PDF): Chiu et al., J Biomech 186 (2025) 112695
+77 atleti d'élite (170 ± 9 cm), iPhone 12 mini a **120 fps** (e 30 fps simulati prendendo 1 fotogramma su 4), camera a 2,5 m perpendicolare al piano sagittale, **pedana Hawkin Dynamics a 1000 Hz** come riferimento (decollo = primo punto con forza < 10 N). Metodo: segmentazione (PointRend) + posa (ViTPose); il punto più basso della sagoma, filtrato passa-basso a 4 Hz, dà decollo e atterraggio dai punti critici dell'accelerazione; `h = g·T²/8`.
+
+| | MAE | R | Limiti di accordo 95 % | Media (rif. 547 ms / 36,2 cm) |
+|---|---|---|---|---|
+| Tempo di volo, 120 fps | **17 ms** | 0,92 | −43 … +59 ms | 555 ms (+8 ms) |
+| Tempo di volo, 30 fps | 20 ms | 0,89 | −71 … +44 ms | 533 ms (−14 ms) |
+| Altezza, 120 fps | 3,0 cm | 0,91 | −4,8 … +8,8 cm | 38,2 cm (+2,0 cm) |
+| Altezza, 30 fps | 2,6 cm | 0,88 | −8,3 … +6,6 cm | 35,4 cm (−0,8 cm) |
+
+Lettura: è il metro esterno con verità da pedana a cui confrontarci. Un buon metodo da video arriva a un errore medio assoluto di ~17 ms sul volo (±50 ms al 95 %) e a una piccola sovrastima a 120 fps. Le differenze che abbiamo misurato tra landmark e pixel (14–30 ms sul volo, eventi singoli fino a 87 ms) hanno la stessa scala di quegli errori; **non sappiamo ancora** se il nostro tracciamento dei pixel sia più vicino alla pedana di quel 17 ms: servirebbero dati con pedana.
+
+### Dove stanno i dati con verità (verificato)
+| Fonte | Esito |
+|---|---|
+| Chiu 2025 | il PDF e la scheda SHURA non riportano alcun deposito dati. Contatto: c.chiu@shu.ac.uk, jameschang@mail.cmu.edu.tw. |
+| ND-Jump (Blanchard, 89 atleti, CMJ e drop jump) | i **video si ottengono su richiesta** da cvrl.nd.edu (ND-Jump Analysis Video Dataset). Il repository [Blanchard-lab/ape-v](https://github.com/Blanchard-lab/ape-v) contiene solo scheletri OpenPose (anca, ginocchio, caviglia in pixel) ed etichette di errori tecnici: **nessuna forza né istanti di stacco/atterraggio**. |
+| ForcePose (Michigan) | forza a 600 Hz + mocap + pose 2D, CMJ inclusi, ma i dati sono nei tarball di prism.eecs.umich.edu con **certificato scaduto dal 20/06/2025**: non scaricabili in modo sicuro. Il repository GitHub ha solo il codice. Non contiene immagini. |
+| BioCV (Bath) | su richiesta. |
