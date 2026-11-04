@@ -149,3 +149,29 @@ Limite noto: camera che trema (3 Hz, ±11 px) a 240 fps → 8,8 ms. Usare un sup
 - Forza e potenza sono stime con scala dalla statura dichiarata (errore di scala plausibile ±5 %): non sono misure da pedana.
 - Le schede di ripresa sono buone pratiche. Distanza e altezza della camera non sono state validate da nessuno studio trovato.
 - Non esiste un dataset pubblico accessibile con video + pedana (Zenodo, IEEE DataPort, Figshare controllati): BioCV (Università di Bath) è su richiesta.
+
+### Perché due persone possono ottenere risultati diversi sullo stesso video (verifica v4.3)
+Salto IMG_0181 (60 fps, TrackJump 34,9 cm), modello Heavy + specchio, volo e altezza dopo la condivisione simulata:
+
+| Variante del file | Volo | Altezza |
+|---|---|---|
+| Originale (1072×1904, 60 fps) | 0,530 s | 34,5 cm |
+| 720p, CRF 28 (~0,6 Mbit/s) | 0,530 s | 34,5 cm |
+| 480p, 0,8 Mbit/s | 0,530 s | 34,5 cm |
+| Qualità molto bassa (CRF 30, 1,1 Mbit/s) | 0,527 s | 34,1 cm |
+| Ridotto a 30 fps (1072×1904) | 0,529 s | 34,3 cm (±2,2) |
+| 480p a 30 fps | 0,527 s | 34,1 cm (±2,1) |
+| Frame rate variabile, 20 % dei fotogrammi eliminati | 0,527 s | 34,1 cm |
+| Frame rate variabile, 40 % eliminati | 0,530 s | 34,5 cm (avviso di copertura) |
+
+→ **La ricompressione, la risoluzione, il bitrate e il frame rate variabile da soli non spiegano differenze di più di ~1 cm.**
+
+Cause che invece possono dare differenze grandi:
+1. **Versione dell'app**: sullo stesso video la v4.0 dava 210 cm, la v4.1 37,8 cm, la v4.2/v4.3 33,7 cm. Ora la versione è visibile in Home e nel Profilo.
+2. **Slow-motion**: un file «appiattito» a 30 fps ha una calibrazione che cambia l'altezza di molte volte (×4 → 53 cm, ×6 → 21 cm, ×8 → 12 cm). Due persone con calibrazioni diverse sullo stesso file ottengono numeri molto diversi.
+3. **Percorso di lettura del video**: con WebCodecs si usano i tempi reali; altrimenti (browser/codec non supportati) si usa `<video>` con tempi stimati. Corretto in v4.3: la misura degli fps ora riproduce a 1/4 di velocità (prima, su un video a 60 fps, misurava 30 fps e analizzava un fotogramma su due: stesso risultato ma incertezza raddoppiata).
+4. **Impostazioni**: modello (Lite/Full/Heavy) e rifinitura: ±0,5–1 cm; tipo di test, gamba, calibrazione.
+5. **Rifinitura non eseguita** (Heavy non caricato per memoria): ora segnalato nei risultati.
+6. **Video diversi**: stessa ripresa ma non lo stesso file, o un frame rate diverso all'origine.
+
+Per confrontare due analisi: Dettagli tecnici → «Copia riepilogo» (versione, lettura, modello, calibrazione, risultato).

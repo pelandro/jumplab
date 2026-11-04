@@ -4,6 +4,7 @@ import { h, icon, ic, fmt, toast, confirmSheet } from './dom.js';
 import { store } from '../store.js';
 import { TEST_TYPES, summarizeSeries } from '../engine/jumps.js';
 import { openGuide } from './guide.js';
+import { VERSION } from '../store.js';
 import { reanalyze, editJump, addJump } from '../engine/pipeline.js';
 import { FramePlayer } from './player.js';
 import { TrajectoryChart } from './chart.js';
@@ -37,6 +38,7 @@ export const review = {
     const cur = () => jumps()[selIdx];
     const resOf = (j) => session.results[j.win];
     const heightM = () => (session.params?.heightCm || 175) / 100;
+    const uncal = (x) => !!x.timeScaleHint && (session.cal?.mode || 'auto') === 'auto';
 
     // --------- DOM
     const badge = h('div', { class: 'badge ground' }, 'A TERRA');
@@ -148,15 +150,17 @@ export const review = {
       chart.set(chartData(j));
       // pills
       pills.replaceChildren(...jumps().map((x, i) => h('button', { class: 'pill' + (i === selIdx ? ' sel' : '') + (x.excluded ? ' off' : ''), onclick: () => select(i) },
-        `Salto ${i + 1}`, h('small', { class: 'num' }, `${L(x.heightCm).v.toFixed(1)} ${L(x.heightCm).u}${x.manual ? ' · man.' : ''}`))),
+        `Salto ${i + 1}`, h('small', { class: 'num' }, `${uncal(x) ? '—' : L(x.heightCm).v.toFixed(1) + ' ' + L(x.heightCm).u}${x.manual ? ' · man.' : ''}`))),
         h('button', { class: 'pill', style: { minWidth: '56px', color: 'var(--accent)' }, onclick: addManual }, ic('plus'), h('small', {}, 'Aggiungi')));
       // hero
       const hh = L(j.heightCm);
       hero.replaceChildren(
         h('div', { class: 'hero' },
           h('div', {}, h('div', { class: 'small muted', style: { fontWeight: 700, marginBottom: '6px' } }, 'ALTEZZA SALTO (tempo di volo)'),
-            h('div', { class: 'big num' }, hh.v.toFixed(1), h('small', {}, hh.u)),
-            Number.isFinite(j.uncCm) ? h('div', { class: 'small muted num', style: { marginTop: '4px' } }, `± ${L(j.uncCm).v.toFixed(1)} ${hh.u} (1σ)${j.refined ? ' · rifinito' : ''}`) : null),
+            // video rallentato non calibrato: il numero sarebbe assurdo (es. 800 cm) e potrebbe essere letto o salvato per errore
+            uncal(j) ? h('div', { class: 'big num' }, '—', h('small', {}, 'calibra il tempo'))
+              : h('div', { class: 'big num' }, hh.v.toFixed(1), h('small', {}, hh.u)),
+            Number.isFinite(j.uncCm) && !uncal(j) ? h('div', { class: 'small muted num', style: { marginTop: '4px' } }, `± ${L(j.uncCm).v.toFixed(1)} ${hh.u} (1σ)${j.refined ? ' · rifinito' : ''}`) : null),
           h('div', { style: { textAlign: 'right' } }, h('span', { class: 'conf ' + j.confidence }, 'Affidabilità ' + j.confidence),
             h('div', { class: 'num', style: { fontSize: '22px', fontWeight: 800, marginTop: '8px' } }, fmt.ms(j.T), h('small', { class: 'muted', style: { fontSize: '13px' } }, ' ms'))),
         ),
@@ -250,6 +254,21 @@ export const review = {
 
     // --------- impostazioni analisi
     const settingsBox = h('div', { class: 'card' });
+    // Riepilogo per confrontare due analisi dello stesso video (versione, modello, lettura, impostazioni, risultato)
+    function copyReport() {
+      const m = session.meta, p = session.params || {}, j = jumps()[selIdx] || jumps()[0];
+      const cal = session.cal || { mode: 'auto' };
+      const lines = [
+        `Jump Lab v${VERSION}`, `File: ${m.name}`, `Lettura: ${m.kind} · ${m.codec || ''} · ${m.width}×${m.height} · ${m.fps?.toFixed(2)} fps${m.variableRate ? ' (variabile)' : ''}`,
+        `Test: ${p.testType} · gamba: ${p.leg || 'both'} · statura: ${p.heightCm} cm · massa: ${p.massKg || '-'} kg`,
+        `Modello: ${m.model?.model}/${m.model?.delegate} · rifinitura: ${m.refined ? 'sì' : 'no'} · calibrazione: ${cal.mode}${cal.value ? ' ' + cal.value : ''}`,
+        `Ripresa: ${session.quality?.view || '?'} · persone: ${session.people || 1}`,
+        j ? `Salto: stacco ${j.to.toFixed(3)} s · atterraggio ${j.td.toFixed(3)} s · volo ${(j.T * 1000).toFixed(0)} ms · altezza ${j.heightCm.toFixed(1)} ± ${(j.uncCm || 0).toFixed(1)} cm` : 'Nessun salto',
+      ];
+      const text = lines.join('\n');
+      (navigator.clipboard?.writeText(text) || Promise.reject()).then(() => toast('Riepilogo copiato'), () => { prompt('Copia il riepilogo', text); });
+    }
+
     function drawSettings() {
       const cal = session.cal || { mode: 'auto' };
       const calVal = cal.mode === 'auto' ? 'auto' : cal.mode + ':' + cal.value;
@@ -276,7 +295,9 @@ export const review = {
           h('div', { class: 'kv' }, h('span', {}, 'Rifinitura Heavy + specchio'), h('span', {}, m.refined ? 'Sì (attorno a stacco e atterraggio)' : 'No')),
           h('div', { class: 'kv' }, h('span', {}, 'Fotogrammi analizzati'), h('span', {}, session.windows.reduce((s, w) => s + w.frames.length, 0))),
           h('div', { class: 'kv' }, h('span', {}, 'Altezza atleta usata'), h('span', {}, `${session.params.heightCm || 175} cm`)),
+          h('div', { class: 'kv' }, h('span', {}, 'Versione app'), h('span', {}, 'v' + VERSION)),
           h('div', { class: 'row', style: { marginTop: '10px' } },
+            h('button', { class: 'btn sm', onclick: () => copyReport() }, ic('download'), 'Copia riepilogo'),
             h('button', { class: 'btn sm', onclick: () => app.startAnalysis(session.file, { fullScan: true }) }, 'Analisi completa del video'),
             h('button', { class: 'btn sm', onclick: () => app.startAnalysis(session.file, { model: 'heavy' }) }, 'Rifai con Heavy'))));
     }
@@ -286,6 +307,7 @@ export const review = {
     async function save() {
       const used = jumps().filter((x) => !x.excluded);
       if (!used.length) { toast('Nessun salto da salvare'); return; }
+      if (used.some(uncal)) { toast('Video rallentato: applica prima la calibrazione del tempo'); return; }
       const best = used.reduce((a, b) => (b.heightCm > a.heightCm ? b : a));
       let thumb = '';
       try {
@@ -301,7 +323,7 @@ export const review = {
       } catch { /* miniatura facoltativa */ }
       const pick = (j) => ({ to: j.to, td: j.td, T: j.T, heightCm: j.heightCm, contact: j.contact, rsi: j.rsi, rsiFlight: j.rsiFlight, rsiMod: j.rsiMod, dipCm: j.dipCm, v0: j.v0, boxCm: j.boxCm, forceN: j.forceN, powerW: j.powerW, sayersW: j.sayersW, confidence: j.confidence, manual: !!j.manual, uncCm: j.uncCm, heightCorrCm: j.heightCorrCm, refined: !!j.refined, ftct: j.ftct, forceRel: j.forceRel, powerRel: j.powerRel });
       const rec = {
-        id: store.uid(), date: Date.now(), athleteId: ath.id, athleteName: ath.name, testType: session.params.testType, leg: S.leg, view: session.quality?.view || null,
+        id: store.uid(), date: Date.now(), athleteId: ath.id, athleteName: ath.name, testType: session.params.testType, leg: S.leg, view: session.quality?.view || null, ver: VERSION,
         fileName: session.meta.name, fps: session.meta.fps, cal: session.cal, heightCm: session.params.heightCm,
         jumps: used.map(pick), best: best.heightCm, thumb,
       };

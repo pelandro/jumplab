@@ -214,7 +214,12 @@ export async function runAnalysis(file, opts, cb = {}) {
   reanalyze(session, params);
   if (opts.refine !== false && session.jumps.some((j) => !j.manual)) {
     try { await refineEvents(session, opts, { stage, onPreview: cb.onPreview, log }, aborted); }
-    catch (e) { if (e.name === 'AbortError') throw e; log('Rifinitura saltata: ' + (e.message || e)); }
+    catch (e) {
+      if (e.name === 'AbortError') throw e;
+      log('Rifinitura saltata: ' + (e.message || e));
+      // senza rifinitura il risultato resta valido ma con ~1–2 cm di incertezza in più (misurato tra Full e Heavy): lo si dice
+      session.quality?.items.push({ level: 'info', code: 'refine', text: `La rifinitura con il modello Heavy non è stata eseguita (${String(e.message || e).slice(0, 80)}): il risultato può differire di 1–2 cm da quello di un dispositivo che la esegue.` });
+    }
   }
   stage('done', 1, 'Completato');
   return session;

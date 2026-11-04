@@ -225,21 +225,29 @@ export class ElementSource extends VideoSource {
   }
 
   static async _probeFps(v) {
+    // Riproduzione a 1/4 di velocità: a velocità normale un dispositivo sotto carico salta fotogrammi e l'fps misurato risulta
+    // dimezzato (60 → 30), cioè si analizza un fotogramma su due. Più campioni, scarto dei passi anomali.
     v.currentTime = 0;
+    v.playbackRate = 0.25;
     const stamps = [];
     await new Promise((resolve) => {
       const cb = (now, md) => {
         stamps.push(md.mediaTime);
-        if (stamps.length < 14) v.requestVideoFrameCallback(cb); else { v.pause(); resolve(); }
+        if (stamps.length < 30) v.requestVideoFrameCallback(cb); else { v.pause(); resolve(); }
       };
       v.requestVideoFrameCallback(cb);
       v.play().catch(resolve);
-      setTimeout(resolve, 1500);
+      setTimeout(resolve, 4000);
     });
-    v.pause(); v.currentTime = 0;
+    v.pause(); v.playbackRate = 1; v.currentTime = 0;
     const d = [];
     for (let i = 1; i < stamps.length; i++) if (stamps[i] > stamps[i - 1]) d.push(stamps[i] - stamps[i - 1]);
-    const dt = median(d);
+    if (d.length < 4) return 0;
+    // il passo nominale è il più piccolo tra quelli ricorrenti (i passi più lunghi sono fotogrammi saltati)
+    const sorted = [...d].sort((a, b) => a - b);
+    const base = sorted[Math.floor(sorted.length * 0.25)];
+    const ok = d.filter((x) => Math.abs(x - base) / base < 0.2);
+    const dt = median(ok.length >= 3 ? ok : d);
     return dt > 0 ? Math.round((1 / dt) * 10) / 10 : 0;
   }
 

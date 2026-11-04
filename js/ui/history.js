@@ -3,12 +3,12 @@ import { store } from '../store.js';
 import { TEST_TYPES } from '../engine/jumps.js';
 
 const csvRows = (sessions) => {
-  const head = ['data', 'atleta', 'test', 'salto', 'altezza_cm', 'volo_ms', 'contatto_ms', 'rsi', 'rsi_flight', 'rsi_mod', 'dip_cm', 'v_stacco_ms', 'pedana_cm', 'forza_N', 'potenza_W', 'affidabilita', 'incertezza_cm', 'altezza_corretta_cm', 'rifinito', 'ftct', 'forza_N_kg', 'potenza_W_kg', 'inquadratura', 'gamba'];
+  const head = ['data', 'atleta', 'test', 'salto', 'altezza_cm', 'volo_ms', 'contatto_ms', 'rsi', 'rsi_flight', 'rsi_mod', 'dip_cm', 'v_stacco_ms', 'pedana_cm', 'forza_N', 'potenza_W', 'affidabilita', 'incertezza_cm', 'altezza_corretta_cm', 'rifinito', 'ftct', 'forza_N_kg', 'potenza_W_kg', 'inquadratura', 'gamba', 'versione'];
   const n = (v, d = 2) => (Number.isFinite(v) ? v.toFixed(d) : '');
   const rows = [head.join(',')];
   for (const s of sessions) s.jumps.forEach((j, i) => rows.push([
     new Date(s.date).toISOString(), JSON.stringify(s.athleteName || ''), s.testType, i + 1, n(j.heightCm, 1), n(j.T * 1000, 0),
-    n(j.contact * 1000, 0), n(j.rsi), n(j.rsiFlight), n(j.rsiMod), n(j.dipCm, 1), n(j.v0), n(j.boxCm, 0), n(j.forceN, 0), n(j.powerW, 0), j.confidence, n(j.uncCm, 1), n(j.heightCorrCm, 1), j.refined ? 1 : 0, n(j.ftct, 2), n(j.forceRel, 1), n(j.powerRel, 1), s.view || '', s.leg || 'both',
+    n(j.contact * 1000, 0), n(j.rsi), n(j.rsiFlight), n(j.rsiMod), n(j.dipCm, 1), n(j.v0), n(j.boxCm, 0), n(j.forceN, 0), n(j.powerW, 0), j.confidence, n(j.uncCm, 1), n(j.heightCorrCm, 1), j.refined ? 1 : 0, n(j.ftct, 2), n(j.forceRel, 1), n(j.powerRel, 1), s.view || '', s.leg || 'both', s.ver || '',
   ].join(',')));
   return rows.join('\n');
 };

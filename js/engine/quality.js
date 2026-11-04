@@ -43,7 +43,14 @@ export function assessRecording(meta, coarse, extra = {}) {
   if (fps >= 200) add('ok', 'fps', `${fps.toFixed(0)} fps: ottimo, un fotogramma vale circa ${(1000 / fps).toFixed(0)} ms.`);
   else if (fps >= 100) add('ok', 'fps', `${fps.toFixed(0)} fps: buono (±1 fotogramma ≈ ${(1000 / fps).toFixed(0)} ms).`);
   else if (fps >= 50) add('info', 'fps', `${fps.toFixed(0)} fps: sufficiente per l'altezza (±1 fotogramma ≈ ±3 cm a 35 cm). Per contatti e RSI usa slow-motion 120/240 fps.`);
-  else add('warn', 'fps', `${fps.toFixed(0)} fps: pochi. ±1 fotogramma vale ≈ ±${(1000 / fps).toFixed(0)} ms: usa slow-motion 120 o 240 fps.`);
+  else add('warn', 'fps', `${fps.toFixed(0)} fps nel file: pochi (±1 fotogramma ≈ ±${(1000 / fps).toFixed(0)} ms). Registra in slow-motion 120/240 fps. Se è già uno slow-motion esportato a 30 fps i fotogrammi reali sono di più: applica la calibrazione suggerita.`);
+  // Percorso di lettura del video: con WebCodecs i tempi sono quelli reali del file; con l'elemento <video> sono stimati
+  // (passo costante assunto), e due dispositivi/browser possono dare risultati diversi sullo stesso file.
+  if (meta.kind === 'element') {
+    add('warn', 'timing', `Questo browser non supporta la lettura precisa dei fotogrammi: i tempi sono stimati a ${(meta.assumedFps || fps).toFixed(1)} fps${meta.fpsProbed ? ' (misurati)' : ' (assunti)'}. I risultati possono differire da quelli ottenuti con un browser recente (Safari 16.4+, Chrome, Edge): per misure confrontabili usa lo stesso dispositivo.`);
+  } else if (meta.variableRate) {
+    add('info', 'vfr', 'Il video ha frame rate variabile (tipico dei video ricodificati da app di messaggistica): i tempi reali del file sono rispettati.');
+  }
   const side = Math.min(meta.width, meta.height);
   if (side < 700) add('warn', 'res', `Risoluzione bassa (${meta.width}×${meta.height}): i piedi hanno pochi pixel. Registra almeno in 1080p.`);
 
