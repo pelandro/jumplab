@@ -6,6 +6,7 @@ const STAGES = [
   ['model', 'Carico il modello di postura'],
   ['scan', 'Cerco i salti'],
   ['dense', 'Tracciamento ad alta precisione'],
+  ['refine', 'Rifinitura stacco e atterraggio (Heavy)'],
   ['analyze', 'Calcolo stacchi e atterraggi'],
 ];
 

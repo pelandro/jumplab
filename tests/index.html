@@ -13,7 +13,7 @@ rilevamento e misura, <b>non</b> la qualità del modello di postura su video rea
 <div id="out">In esecuzione…</div>
 <script type="module">
 import { analyze } from '../js/engine/jumps.js';
-import { buildScenario, renderTrack } from './sim.js';
+import { buildScenario, renderTrack, rng } from './sim.js';
 
 const g = 9.80665;
 const rows = [];
@@ -90,10 +90,51 @@ for (const fps of [30, 60, 240]) for (const drift of [0.02, 0.04]) {
   if (!ok) totalFail++;
   driftRows.push(`<tr><td>deriva ${drift}</td><td>${fps}</td><td>${found}/${tot}</td><td>${Number.isFinite(mean) ? mean.toFixed(1) : '—'}</td><td class="${ok ? 'ok' : 'bad'}">${ok ? 'OK' : 'KO'}</td></tr>`);
 }
+// Robustezza: difetti realistici dei landmark vicino a stacco e atterraggio (CMJ).
+const FEET = [27, 28, 29, 30, 31, 32];
+const perturbs = {
+  'rumore e valori anomali ai contatti': (tr, truth, r) => {
+    const dt = (tr.t[tr.t.length - 1] - tr.t[0]) / (tr.t.length - 1);
+    tr.kp.forEach((k, i) => { if (!k) return; const near = truth.some((x) => Math.abs(tr.t[i] - x.to) < 4 * dt || Math.abs(tr.t[i] - x.td) < 4 * dt); if (!near) return;
+      for (const q of FEET) { k[q * 3 + 1] += r.gauss() * 0.008; if (r.u() < 0.2) k[q * 3 + 1] += (r.u() - 0.5) * 0.08; } });
+  },
+  'piedi non rilevati dopo l\'atterraggio': (tr, truth) => {
+    const dt = (tr.t[tr.t.length - 1] - tr.t[0]) / (tr.t.length - 1);
+    tr.kp.forEach((k, i) => { if (!k) return; if (truth.some((x) => tr.t[i] >= x.td && tr.t[i] < x.td + 3.5 * dt)) for (const q of FEET) k[q * 3 + 2] = 0.05; });
+  },
+  'piedi che scivolano dopo l\'atterraggio': (tr, truth) => {
+    tr.kp.forEach((k, i) => { if (!k) return; for (const x of truth) { const d = tr.t[i] - x.td; if (d > 0) { const dy = 0.02 * Math.min(1, d / 0.15); for (const q of FEET) k[q * 3 + 1] += dy; } } });
+  },
+  'camera che trema (3 Hz)': (tr) => {
+    tr.kp.forEach((k, i) => { if (!k) return; const dy = 0.006 * Math.sin(2 * Math.PI * 3 * tr.t[i]); for (let q = 0; q < 33; q++) k[q * 3 + 1] += dy; });
+  },
+  'ritardo del modello sui piedi (1 fotogramma)': (tr) => {
+    const src = tr.kp.map((k) => (k ? Float32Array.from(k) : k));
+    tr.kp.forEach((k, i) => { if (!k || !src[i - 1]) return; for (const q of FEET) k[q * 3 + 1] = src[i - 1][q * 3 + 1]; });
+  },
+};
+const robRows = [];
+for (const [name, fn] of Object.entries(perturbs)) for (const fps of [30, 60, 240]) {
+  const errs = []; let found = 0, tot = 0, extra = 0;
+  for (const T of [0.4, 0.55]) for (const seed of [1, 2, 3, 4]) {
+    const scn = buildScenario('cmj', { T });
+    const tr = renderTrack(scn, { fps, seed: seed * 13 + fps, noise: fps <= 60 ? 0.003 : 0.0025 });
+    const truth = scn.truth.filter((x) => x.to !== undefined);
+    fn(tr, truth, rng(seed * 101 + fps));
+    const res = analyze(tr, { testType: 'cmj', heightCm: 175 });
+    tot += truth.length; const used = new Set();
+    for (const x of truth) { const j = res.jumps.find((jj, ix) => !used.has(ix) && Math.abs(jj.to - x.to) < 0.15); if (j) { used.add(res.jumps.indexOf(j)); found++; errs.push(Math.abs(j.T - (x.td - x.to)) * 1000); } }
+    extra += res.jumps.length - used.size;
+  }
+  const mean = errs.length ? errs.reduce((a, b) => a + b, 0) / errs.length : NaN;
+  const ok = found === tot && extra === 0 && mean < Math.max(1000 / fps * 1.5, name.startsWith('camera') ? 10 : 8);
+  if (!ok) totalFail++;
+  robRows.push(`<tr><td>${name}</td><td>${fps}</td><td>${found}/${tot}</td><td>${extra}</td><td>${Number.isFinite(mean) ? mean.toFixed(1) : '—'}</td><td class="${ok ? 'ok' : 'bad'}">${ok ? 'OK' : 'KO'}</td></tr>`);
+}
 const f = (x, d = 1) => (Number.isFinite(x) ? x.toFixed(d) : '—');
 document.getElementById('out').innerHTML =
   `<table><tr><th>Test</th><th>fps</th><th>Voli trovati</th><th>Falsi</th><th>Err. T medio (ms)</th><th>Err. T p95 (ms)</th><th>Err. altezza medio %</th><th>p95 %</th><th>Err. contatto (ms)</th><th>Err. dip (cm)</th><th>SJ con CM falso</th><th>Esito</th></tr>` +
   rows.map((r) => `<tr><td>${r.kind}</td><td>${r.fps}</td><td>${r.found}</td><td>${r.extra}</td><td>${f(r.eMean)}</td><td>${f(r.eP95)}</td><td>${f(r.pMean)}</td><td>${f(r.pP95)}</td><td>${f(r.cMean)} (n=${r.cN})</td><td>${f(r.dipMean)}</td><td>${r.cmSj ?? '—'}</td><td class="${r.pass ? 'ok' : 'bad'}">${r.pass ? 'OK' : 'KO'}</td></tr>`).join('') +
-  `</table><h2 style="font-size:15px">Controllo di coerenza con la gravità (suggerimento di calibrazione)</h2><table><tr><th>Scenario</th><th>Suggerimento (4 prove)</th><th>Esito</th></tr>${slowRows.join('')}</table><h2 style="font-size:15px">Deriva del suolo (atleta che si avvicina alla camera)</h2><table><tr><th>Scenario</th><th>fps</th><th>Voli trovati</th><th>Err. T medio (ms)</th><th>Esito</th></tr>${driftRows.join('')}</table><p class="${totalFail ? 'bad' : 'ok'}">${totalFail ? totalFail + ' scenari fuori soglia' : 'Tutti gli scenari entro soglia'}</p>`;
+  `</table><h2 style="font-size:15px">Controllo di coerenza con la gravità (suggerimento di calibrazione)</h2><table><tr><th>Scenario</th><th>Suggerimento (4 prove)</th><th>Esito</th></tr>${slowRows.join('')}</table><h2 style="font-size:15px">Deriva del suolo (atleta che si avvicina alla camera)</h2><table><tr><th>Scenario</th><th>fps</th><th>Voli trovati</th><th>Err. T medio (ms)</th><th>Esito</th></tr>${driftRows.join('')}</table><h2 style="font-size:15px">Robustezza ai difetti dei landmark</h2><table><tr><th>Difetto</th><th>fps</th><th>Voli trovati</th><th>Falsi</th><th>Err. T medio (ms)</th><th>Esito</th></tr>${robRows.join('')}</table><p class="${totalFail ? 'bad' : 'ok'}">${totalFail ? totalFail + ' scenari fuori soglia' : 'Tutti gli scenari entro soglia'}</p>`;
 window.__results = { rows, totalFail };
 </script></body></html>

@@ -5,7 +5,7 @@
 // I fotogrammi analizzati sono conservati come JPEG per la revisione frame-per-frame.
 
 import { openVideo } from './video.js';
-import { pose } from './pose.js';
+import { pose, PoseEngine } from './pose.js';
 import { analyze, remeasure } from './jumps.js';
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
@@ -45,7 +45,7 @@ function cropFromBox(b, aspect) {
   return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
 }
 
-function toBlob(canvas, q = 0.82) {
+function toBlob(canvas, q = 0.9) {
   return new Promise((res) => canvas.toBlob((b) => res(b), 'image/jpeg', q));
 }
 
@@ -159,7 +159,7 @@ export async function runAnalysis(file, opts, cb = {}) {
       win.frames.push({ idx, t, kp, blob });
       done++;
       if (done % 3 === 0) {
-        stage('dense', 0.38 + 0.57 * Math.min(1, done / totalFrames), `Tracciamento ad alta precisione · ${Math.min(99, Math.round((100 * done) / totalFrames))}%`);
+        stage('dense', 0.38 + 0.42 * Math.min(1, done / totalFrames), `Tracciamento ad alta precisione · ${Math.min(99, Math.round((100 * done) / totalFrames))}%`);
         cb.onPreview?.(dcv, kp ? remapToCrop(kp, crop) : null, { crop, t, fps: meta.fps });
         await tick();
       }
@@ -167,10 +167,91 @@ export async function runAnalysis(file, opts, cb = {}) {
     session.windows.push(win);
   }
   src.dispose();
-  stage('analyze', 0.96, 'Calcolo stacchi e atterraggi…');
-  reanalyze(session, { cal: opts.cal, testType: opts.testType, heightCm: opts.heightCm, massKg: opts.massKg, boxCm: opts.boxCm });
+  stage('analyze', 0.8, 'Calcolo stacchi e atterraggi…');
+  const params = { cal: opts.cal, testType: opts.testType, heightCm: opts.heightCm, massKg: opts.massKg, boxCm: opts.boxCm };
+  reanalyze(session, params);
+  if (opts.refine !== false && session.jumps.some((j) => !j.manual)) {
+    try { await refineEvents(session, opts, { stage, onPreview: cb.onPreview, log }, aborted); }
+    catch (e) { if (e.name === 'AbortError') throw e; log('Rifinitura saltata: ' + (e.message || e)); }
+  }
   stage('done', 1, 'Completato');
   return session;
+}
+
+/**
+ * Rifinitura: rianalizza con il modello Heavy e la media immagine-normale/specchiata SOLO i fotogrammi attorno a stacco e
+ * atterraggio (i soli che decidono il tempo di volo), usando i ritagli già salvati. Su video reale a 60 fps: rumore sui
+ * piedi -30 %, volo 0,556 -> 0,535 s; basta ±0,15 s (la miscela di modelli non crea artefatti).
+ */
+async function refineEvents(session, opts, cb, aborted) {
+  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+  const plan = [];
+  let total = 0;
+  session.windows.forEach((win, wi) => {
+    const tc = win.frames.map((f) => f.tc);
+    const diffs = []; for (let i = 1; i < tc.length; i++) if (tc[i] > tc[i - 1]) diffs.push(tc[i] - tc[i - 1]);
+    const dtc = diffs.length ? diffs.sort((a, b) => a - b)[diffs.length >> 1] : 1 / 30;
+    const R = clamp(0.2, 8 * dtc, 40 * dtc);
+    const want = new Set();
+    for (const j of session.jumps) {
+      if (j.win !== wi || j.manual) continue;
+      for (const ev of [j.to, j.td]) for (let i = 0; i < tc.length; i++) if (Math.abs(tc[i] - ev) <= R) want.add(i);
+    }
+    if (want.size) { plan.push({ win, idx: [...want].sort((a, b) => a - b) }); total += want.size; }
+  });
+  if (!total) return;
+  const before = session.jumps.map((j) => ({ win: j.win, to: j.to, T: j.T }));
+  cb.stage('refine', 0.8, 'Carico il modello Heavy per la rifinitura…');
+  pose.close(); // libera la memoria del modello usato per la scansione
+  const rp = new PoseEngine();
+  try {
+    await rp.init({ model: 'heavy', delegate: opts.delegate || 'auto', onStatus: (s) => cb.stage('refine', 0.81, s) });
+    const cv = document.createElement('canvas'), ctx = cv.getContext('2d', { willReadFrequently: true });
+    let done = 0, changed = 0;
+    for (const { win, idx } of plan) {
+      cv.width = win.cw; cv.height = win.ch;
+      for (const i of idx) {
+        aborted();
+        const f = win.frames[i];
+        const bmp = await createImageBitmap(f.blob);
+        ctx.drawImage(bmp, 0, 0, cv.width, cv.height); bmp.close?.();
+        const kp = rp.detect(cv, { flip: true });
+        if (kp) {
+          const crop = win.crop;
+          const view = new Float32Array(kp);
+          for (let q = 0; q < 33; q++) { kp[q * 3] = crop.x + kp[q * 3] * crop.w; kp[q * 3 + 1] = crop.y + kp[q * 3 + 1] * crop.h; }
+          f.kp = kp; changed++;
+          if (done % 2 === 0) cb.onPreview?.(cv, view, { crop, t: f.t });
+        }
+        if (++done % 2 === 0) { cb.stage('refine', 0.82 + 0.13 * (done / total), `Rifinitura stacco e atterraggio · ${Math.round((100 * done) / total)}%`); await tick(); }
+      }
+    }
+    cb.log?.(`Rifinitura Heavy+specchio: ${changed}/${total} fotogrammi`);
+  } finally { rp.close(); }
+  cb.stage('analyze', 0.96, 'Calcolo stacchi e atterraggi…');
+  reanalyze(session, {});
+  session.meta.refined = true;
+  // quanto il tempo di volo si è mosso con la rifinitura (relativo, così resta valido se cambia la calibrazione)
+  session.refineInfo = session.windows.map(() => []);
+  for (const j of session.jumps) {
+    const b = before.find((x) => x.win === j.win && Math.abs(x.to - j.to) < 0.15);
+    session.refineInfo[j.win].push(b ? { rel: Math.abs(j.T - b.T) / j.T, to: j.to } : { rel: 0, to: j.to });
+  }
+  applyRefineInfo(session);
+}
+
+/** Aggiunge all'incertezza di ogni salto lo spostamento dovuto alla rifinitura e lo segna come rifinito. */
+function applyRefineInfo(session) {
+  if (!session.refineInfo) return;
+  session.results.forEach((res, wi) => {
+    const info = session.refineInfo[wi] || [];
+    res.jumps.forEach((j, k) => {
+      if (!info[k]) return;
+      j.refined = true;
+      j.uncT = Math.hypot(j.uncT || 0, 0.5 * info[k].rel * j.T);
+      j.uncCm = ((9.80665 * j.T * j.uncT) / 4) * 100;
+    });
+  });
 }
 
 function remapToCrop(kp, crop) {
@@ -208,6 +289,7 @@ export function reanalyze(session, p = {}) {
     session.results.push(res);
   }
   session.jumps = session.results.flatMap((r) => r.jumps);
+  applyRefineInfo(session);
   return session;
 }
 

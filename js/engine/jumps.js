@@ -11,7 +11,7 @@
 
 import {
   isNum, clamp, median, percentile, mean, robustSigma, medianFilter, fillGaps,
-  smooth, derivative, resampleUniform, findPeaks, hingeFit, parabolaFit,
+  smooth, derivative, resampleUniform, findPeaks, hingeFit, hingeFit2, parabolaFit,
 } from './signal.js';
 
 export const G = 9.80665;
@@ -36,7 +36,7 @@ const VIS = 0.3;
  * track: { t: number[] (secondi reali), kp: (Float32Array(33*3)|null)[], aspect: larghezza/altezza }
  * Le coordinate dei landmark sono normalizzate sul fotogramma orientato (0..1), y verso il basso.
  */
-export function buildSignals(track) {
+export function buildSignals(track, tune = {}) {
   const { t: tRaw, kp, aspect = 16 / 9 } = track;
   const N = tRaw.length;
   if (N < 6) return null;
@@ -83,7 +83,7 @@ export function buildSignals(track) {
     grid[key] = r.y; tGrid = r.t;
   }
   const n = tGrid.length;
-  const fw = dt < 0.008 ? 5 : 3;
+  const fw = tune.fw ?? (dt < 0.008 ? 5 : 3);
   const f = (a) => medianFilter(fillGaps(a, Math.max(1, Math.round(0.05 / dt))), fw);
   const foot = [f(grid.heelL), f(grid.toeL), f(grid.heelR), f(grid.toeR)];
   const ank = [f(grid.ankL), f(grid.ankR)];
@@ -99,9 +99,23 @@ export function buildSignals(track) {
     if (m > -Infinity) { footLow[k] = m; validFoot++; }
     else if (am > -Infinity) footLow[k] = am + 0.035 * bodyH; // ripiego sulle caviglie
   }
+  // Buchi lunghi sui piedi (sfocatura, occlusione): si colma con il bacino (che segue il corpo) + scarto piedi-bacino
+  // interpolato tra prima e dopo il buco. È un ripiego: la copertura reale resta in footLowRaw e abbassa l'affidabilità.
+  const footLowRaw = Float64Array.from(footLow);
+  const hipS = f(grid.hip), maxGap = Math.round(0.25 / dt);
+  for (let k = 0; k < n;) {
+    if (isNum(footLow[k])) { k++; continue; }
+    let e = k; while (e < n && !isNum(footLow[e])) e++;
+    if (e - k <= maxGap && k > 0 && e < n) {
+      const off = (a, b) => { const v = []; for (let i = a; i <= b; i++) if (isNum(footLow[i]) && isNum(hipS[i])) v.push(footLow[i] - hipS[i]); return v.length ? median(v) : NaN; };
+      const o0 = off(Math.max(0, k - 4), k - 1), o1 = off(e, Math.min(n - 1, e + 3));
+      if (isNum(o0) && isNum(o1)) for (let i = k; i < e; i++) if (isNum(hipS[i])) footLow[i] = hipS[i] + o0 + (o1 - o0) * ((i - k + 1) / (e - k + 1));
+    }
+    k = e;
+  }
   return {
     t: tGrid, dt, n, fps: 1 / dt, bodyH, aspect,
-    footLow, footLowAnkle,
+    footLow, footLowRaw, footLowAnkle,
     hip: f(grid.hip), hipX: fillGaps(grid.hipX, 3), sh: f(grid.sh), nose: f(grid.nose),
     vis: fillGaps(grid.vis, 3),
     kneeL: f(grid.kneeL), kneeR: f(grid.kneeR),
@@ -173,9 +187,13 @@ export function detectFlights(sig, opts = {}) {
     if (sideLevels && (iA <= lb || iB >= n - 1)) { [iA, iB] = search(g0, g0); gA = g0; gB = g0; }
     if (iA <= lb || iB >= n - 1) continue; // volo incompleto o senza contatto con il suolo
     const m = Math.max(3, Math.round(0.1 / dt));
-    const Kb = Math.max(4, Math.round(0.08 / dt)), Ka = Math.max(3, Math.round(0.05 / dt));
-    const fitTo = hingeFit(t, u, Math.max(lb, iA - Kb), Math.min(p, iA + Ka), +1);
-    const fitTd = hingeFit(t, u, Math.max(p, iB - Ka), Math.min(n - 1, iB + Kb), -1);
+    const tune = opts.tune || {};
+    const Kb = Math.max(4, Math.round((tune.kb ?? 0.14) / dt)), Ka = 0; // lato suolo
+    const Kp = Math.max(3, Math.round((tune.kp ?? 0.12) / dt)); // lato rampa
+    // suolo inclinato (fit a due rette): robusto a deriva e passi dopo l'atterraggio; il piatto resta il ripiego
+    const flat1 = tune.hinge === 1;
+    const fitTo = (!flat1 && hingeFit2(t, u, Math.max(lb, iA - Kb), Math.min(p, iA + Kp), +1)) || hingeFit(t, u, Math.max(lb, iA - Math.round(0.08 / dt)), Math.min(p, iA + Math.round(0.05 / dt)), +1);
+    const fitTd = (!flat1 && hingeFit2(t, u, Math.max(p, iB - Kp), Math.min(n - 1, iB + Kb), -1)) || hingeFit(t, u, Math.max(p, iB - Math.round(0.05 / dt)), Math.min(n - 1, iB + Math.round(0.08 / dt)), -1);
     // ripiego: attraversamento di soglia con interpolazione lineare
     const crossTo = () => {
       const level = gA + thC, a = us[iA], b = us[iA + 1];
@@ -188,8 +206,8 @@ export function detectFlights(sig, opts = {}) {
     let to = fitTo ? fitTo.tau : crossTo();
     let td = fitTd ? fitTd.tau : crossTd();
     // sanità: la cerniera deve cadere vicino alla soglia grossolana
-    if (!(to >= t[Math.max(0, iA - Kb)] && to <= t[Math.min(n - 1, iA + Ka + 1)])) to = crossTo();
-    if (!(td >= t[Math.max(0, iB - Ka - 1)] && td <= t[Math.min(n - 1, iB + Kb)])) td = crossTd();
+    if (!(to >= t[Math.max(0, iA - Kb)] && to <= t[Math.min(n - 1, iA + Kp + 1)]) && !(flat1)) to = crossTo();
+    if (!(td >= t[Math.max(0, iB - Kp - 1)] && td <= t[Math.min(n - 1, iB + Kb)])) td = crossTd();
     const T = td - to;
     if (!(T >= minFlight && T <= maxFlight)) continue;
     const Gpre = percentile(Array.from(u.slice(Math.max(lb, iA - m), iA + 1)), 0.4);
@@ -198,7 +216,7 @@ export function detectFlights(sig, opts = {}) {
       to, td, T, iA, iB, p, Gpre, Gpost, sigma, thC,
       fitTo: fitTo ? { rmse: fitTo.rmse, v: fitTo.v } : null,
       fitTd: fitTd ? { rmse: fitTd.rmse, v: fitTd.v } : null,
-      prom: pk.prom,
+      prom: pk.prom, vTo: fitTo ? fitTo.v : NaN, vTd: fitTd ? fitTd.v : NaN,
     });
     lb = iB;
   }
@@ -318,7 +336,7 @@ export function describeJump(sig, cache, to, td, ctx = {}) {
   const cov = (() => {
     let ok = 0, tot = 0;
     const a = idxAt(sig, to - 0.2), b = idxAt(sig, td + 0.2);
-    for (let i = a; i <= b; i++) { tot++; if (isNum(sig.footLow[i])) ok++; }
+    for (let i = a; i <= b; i++) { tot++; if (isNum(sig.footLowRaw[i])) ok++; }
     return tot ? ok / tot : 0;
   })();
   if (cov < 0.6) add('warn', 'coverage', 'Piedi poco visibili nel tracciamento attorno a stacco/atterraggio.', 0.3);
@@ -331,9 +349,44 @@ export function describeJump(sig, cache, to, td, ctx = {}) {
   else if (rel > 0.07) add('info', 'fps', `±1 frame ≈ ±${frameCm.toFixed(1)} cm. Con 240 fps l'errore scenderebbe sotto 1 cm.`, 0.1);
   if (T > 1.1) add('info', 'long', 'Tempo di volo molto lungo: verifica che sia un salto singolo.', 0.1);
 
+  // Incertezza (1σ) sul tempo di volo e sull'altezza: dh = g·T·dT/4
+  const uncT = ctx.uncT ?? Math.SQRT2 * 0.35 * dt * 1.3;
+  const uncCm = ((G * T * uncT) / 4) * 100;
+
+  // Postura: il tempo di volo vale solo se bacino-piedi sono uguali allo stacco e all'atterraggio. Se si atterra più
+  // flessi (bacino più basso) il volo si allunga e l'altezza è sovrastimata (letteratura: 2–11 %, ~2,5 cm).
+  let postureDropCm = NaN, heightCorrCm = NaN;
+  if (T < 1.5) {
+    const nS = Math.max(1, Math.round(0.04 / dt));
+    const hf = (a, b) => {
+      const v = [];
+      for (let i = Math.max(0, a); i <= Math.min(sig.n - 1, b); i++) if (isNum(sig.footLow[i]) && isNum(sig.hip[i])) v.push(sig.footLow[i] - sig.hip[i]);
+      return v.length ? median(v) : NaN;
+    };
+    // finestre simmetriche attorno agli istanti: lo stacco ha le gambe estese e l'atterraggio il primo contatto; una finestra
+    // solo "dopo" il contatto includerebbe già l'ammortizzazione e gonfierebbe la differenza
+    const hTO = hf(i0 - nS, i0 + nS), hTD = hf(i1 - nS, i1 + nS);
+    const dM = (hTO - hTD) / fhPerM;
+    if (isNum(dM) && Math.abs(dM) < 0.3) {
+      postureDropCm = dM * 100;
+      // altezza h dal culmine tale che T = sqrt(2h/g) + sqrt(2(h+d)/g)
+      let lo = 0, hi = 2;
+      for (let q = 0; q < 50; q++) {
+        const hm = (lo + hi) / 2;
+        const fT = Math.sqrt((2 * hm) / G) + Math.sqrt((2 * Math.max(0, hm + dM)) / G);
+        if (fT < T) lo = hm; else hi = hm;
+      }
+      heightCorrCm = lo * 100;
+      // il rumore sui landmark è ~±2,5 cm (da 3 a 8 cm sullo stesso salto tra Heavy e Lite): solo differenze nette sono segnalate
+      const over = heightCm - heightCorrCm;
+      if (postureDropCm > 8) add('warn', 'landflex', `Atterraggio più flesso dello stacco (bacino circa ${postureDropCm.toFixed(0)} cm più basso): il tempo di volo può sovrastimare l'altezza di circa ${over.toFixed(1)} cm (stima corretta ${heightCorrCm.toFixed(1)} cm). Atterra con le gambe tese per confrontare i salti.`, 0.1);
+      else if (postureDropCm < -8) add('info', 'tuck', 'Bacino più alto all\'atterraggio che allo stacco: possibile atterraggio sulle punte o gambe raccolte in volo.', 0);
+    }
+  }
+
   const ph = TEST_TYPES[ctx.testType]?.needsDip || !ctx.contact ? phaseMetrics(sig, hip, i0, to) : null;
   const j = {
-    to, td, T, heightCm, v0, flightMs: T * 1000,
+    to, td, T, heightCm, v0, flightMs: T * 1000, uncT, uncCm, postureDropCm, heightCorrCm,
     contact: ctx.contact ?? null, contactSource: ctx.contactSource ?? null,
     riseCm, gRatio, timeScaleHint, frameCm, coverage: cov,
     dipCm: NaN, timeToTakeoff: NaN, rsiMod: NaN, rsi: NaN, rsiFlight: NaN, boxCm: ctx.boxCm ?? null,
@@ -370,7 +423,7 @@ export function describeJump(sig, cache, to, td, ctx = {}) {
  * Analisi completa di una traccia. opts: { testType, heightCm, massKg, boxCm }
  */
 export function analyze(track, opts = {}) {
-  const sig = buildSignals(track);
+  const sig = buildSignals(track, opts.tune || {});
   if (!sig) return { sig: null, jumps: [], error: 'Traccia troppo corta o corpo non rilevato' };
   const det = detectFlights(sig, opts);
   const hip = hipUpSignal(sig);
@@ -389,8 +442,11 @@ export function analyze(track, opts = {}) {
         boxCm = boxCm ?? (fall.boxFh / (sig.bodyH / userH)) * 100;
       }
     }
+    // incertezza (1σ) sugli istanti di stacco/atterraggio: ±0,35 fotogrammi (spread osservato tra modelli e risoluzioni
+    // su video reale) combinata con il rumore dei piedi diviso la velocità della rampa
+    const sE = (v) => Math.hypot(0.35 * sig.dt, isNum(v) && v > 0 ? det.sigma / v : 0) * (fl.fitTo && fl.fitTd ? 1 : 1.5);
     const jump = describeJump(sig, { ...det, hip, Gpre: fl.Gpre, Gpost: fl.Gpost }, fl.to, fl.td, {
-      ...opts, contact, contactSource, boxCm, fitFailed: !fl.fitTo || !fl.fitTd,
+      ...opts, contact, contactSource, boxCm, fitFailed: !fl.fitTo || !fl.fitTd, uncT: Math.hypot(sE(fl.vTo), sE(fl.vTd)),
     });
     jump.id = k + 1;
     jump.auto = true;

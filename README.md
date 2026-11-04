@@ -49,6 +49,14 @@ Cloudflare Pages o Vercel come sito statico. Apri l'URL HTTPS su iPhone con Safa
 5. **Contatto/RSI**: tra atterraggio precedente (o caduta dalla pedana) e stacco; `RSI = h / GCT`.
 6. **Qualità**: copertura dei piedi, coerenza balistica del bacino, quota dei piedi vs tempo di volo, risoluzione ±1 frame.
 
+## Novità v4.2 (affidabilità di stacco e atterraggio)
+
+- Fit a due rette con suolo inclinato per stacco e atterraggio: robusto a deriva, passi e assestamento dopo il contatto.
+- Rifinitura con Heavy + immagine specchiata solo attorno ai due istanti (impostazione «Rifinitura stacco/atterraggio»).
+- Incertezza (1σ) mostrata accanto all'altezza; avviso quando l'atterraggio è nettamente più flesso dello stacco.
+- Ripiego sul bacino quando i piedi non sono rilevati per brevi tratti.
+- Dettagli, misure e limiti in `VALIDAZIONE.md`.
+
 ## Come filmare (la parte che conta di più)
 
 - **Slo-mo 240 fps** dell'app Fotocamera iPhone, poi *Importa*. A 30 fps ±1 frame vale ~4 cm; a 240 fps <1 cm.

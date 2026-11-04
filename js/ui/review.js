@@ -141,7 +141,8 @@ export const review = {
       hero.replaceChildren(
         h('div', { class: 'hero' },
           h('div', {}, h('div', { class: 'small muted', style: { fontWeight: 700, marginBottom: '6px' } }, 'ALTEZZA SALTO (tempo di volo)'),
-            h('div', { class: 'big num' }, hh.v.toFixed(1), h('small', {}, hh.u))),
+            h('div', { class: 'big num' }, hh.v.toFixed(1), h('small', {}, hh.u)),
+            Number.isFinite(j.uncCm) ? h('div', { class: 'small muted num', style: { marginTop: '4px' } }, `± ${L(j.uncCm).v.toFixed(1)} ${hh.u} (1σ)${j.refined ? ' · rifinito' : ''}`) : null),
           h('div', { style: { textAlign: 'right' } }, h('span', { class: 'conf ' + j.confidence }, 'Affidabilità ' + j.confidence),
             h('div', { class: 'num', style: { fontSize: '22px', fontWeight: 800, marginTop: '8px' } }, fmt.ms(j.T), h('small', { class: 'muted', style: { fontSize: '13px' } }, ' ms'))),
         ),
@@ -164,6 +165,7 @@ export const review = {
       add('Potenza media', fmt.num(j.powerW, 0), 'W', Number.isFinite(j.powerW));
       add('Potenza di picco (Sayers)', fmt.num(j.sayersW, 0), 'W', Number.isFinite(j.sayersW));
       add('Risoluzione ±1 frame', '±' + fmt.num(L(j.frameCm).v, 1), L(0).u);
+      add('Altezza corretta per postura', fmt.num(L(j.heightCorrCm).v, 1), L(0).u, Number.isFinite(j.heightCorrCm) && (j.issues || []).some((x) => x.code === 'landflex'));
       metricsBox.replaceChildren(...m);
       issuesBox.replaceChildren(...j.issues.map((x) => h('div', { class: 'issue ' + x.level, html: icon(x.level === 'info' ? 'info' : 'alert') }, h('div', {}, x.text))));
       if (!j.issues.length) issuesBox.append(h('div', { class: 'issue info', html: icon('check') }, h('div', {}, 'Nessuna anomalia: tempi, traiettoria e visibilità dei piedi sono coerenti.')));
@@ -249,6 +251,7 @@ export const review = {
           h('div', { class: 'kv' }, h('span', {}, 'Frequenza fotogrammi'), h('span', {}, `${m.fps.toFixed(1)} fps${m.variableRate ? ' · variabile' : ''}`)),
           h('div', { class: 'kv' }, h('span', {}, 'Risoluzione'), h('span', {}, `${m.width}×${m.height}${m.rotation ? ' · rot ' + m.rotation + '°' : ''}`)),
           h('div', { class: 'kv' }, h('span', {}, 'Modello'), h('span', {}, m.model ? `${m.model.model} · ${m.model.delegate}` : '—')),
+          h('div', { class: 'kv' }, h('span', {}, 'Rifinitura Heavy + specchio'), h('span', {}, m.refined ? 'Sì (attorno a stacco e atterraggio)' : 'No')),
           h('div', { class: 'kv' }, h('span', {}, 'Fotogrammi analizzati'), h('span', {}, session.windows.reduce((s, w) => s + w.frames.length, 0))),
           h('div', { class: 'kv' }, h('span', {}, 'Altezza atleta usata'), h('span', {}, `${session.params.heightCm || 175} cm`)),
           h('div', { class: 'row', style: { marginTop: '10px' } },
@@ -274,7 +277,7 @@ export const review = {
         c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
         thumb = c.toDataURL('image/jpeg', 0.7);
       } catch { /* miniatura facoltativa */ }
-      const pick = (j) => ({ to: j.to, td: j.td, T: j.T, heightCm: j.heightCm, contact: j.contact, rsi: j.rsi, rsiFlight: j.rsiFlight, rsiMod: j.rsiMod, dipCm: j.dipCm, v0: j.v0, boxCm: j.boxCm, forceN: j.forceN, powerW: j.powerW, sayersW: j.sayersW, confidence: j.confidence, manual: !!j.manual });
+      const pick = (j) => ({ to: j.to, td: j.td, T: j.T, heightCm: j.heightCm, contact: j.contact, rsi: j.rsi, rsiFlight: j.rsiFlight, rsiMod: j.rsiMod, dipCm: j.dipCm, v0: j.v0, boxCm: j.boxCm, forceN: j.forceN, powerW: j.powerW, sayersW: j.sayersW, confidence: j.confidence, manual: !!j.manual, uncCm: j.uncCm, heightCorrCm: j.heightCorrCm, refined: !!j.refined });
       const rec = {
         id: store.uid(), date: Date.now(), athleteId: ath.id, athleteName: ath.name, testType: session.params.testType, leg: S.leg,
         fileName: session.meta.name, fps: session.meta.fps, cal: session.cal, heightCm: session.params.heightCm,

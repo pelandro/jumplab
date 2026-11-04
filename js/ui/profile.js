@@ -1,5 +1,5 @@
 import { h, icon, ic, sheet, toast, confirmSheet, downloadFile } from './dom.js';
-import { store } from '../store.js';
+import { store, VERSION } from '../store.js';
 import { MODELS, isIOS } from '../engine/pose.js';
 
 export const profile = {
@@ -27,6 +27,8 @@ export const profile = {
         select('Unità di misura', 'units', [['cm', 'Centimetri'], ['in', 'Pollici']]),
         select('Modello di postura', 'model', Object.entries(MODELS).map(([k, m]) => [k, `${m.label} · ${m.hint}`]), 'Full è il compromesso migliore. Heavy è più lento ma può essere più stabile sui piedi.'),
         select('Acceleratore', 'delegate', [['auto', isIOS() ? 'Automatico (CPU su iPhone)' : 'Automatico (GPU se disponibile)'], ['gpu', 'Forza GPU'], ['cpu', 'Forza CPU']], 'Se l’analisi dà errori, prova CPU.'),
+        h('div', { class: 'row between' }, h('div', {}, h('div', { style: { fontWeight: 600 } }, 'Rifinitura stacco/atterraggio'), h('div', { class: 'small muted' }, 'Rianalizza con Heavy e immagine specchiata solo attorno ai due istanti: tempi più stabili, qualche minuto in più')),
+          h('button', { class: 'chip ' + (st.refine !== false ? 'sel' : ''), onclick: (e) => { st.refine = st.refine === false; store.save(); e.currentTarget.className = 'chip ' + (st.refine !== false ? 'sel' : ''); e.currentTarget.textContent = st.refine !== false ? 'Sì' : 'No'; } }, st.refine !== false ? 'Sì' : 'No')),
         h('div', { class: 'row between' }, h('div', {}, h('div', { style: { fontWeight: 600 } }, 'Mostra scheletro'), h('div', { class: 'small muted' }, 'Sovrapposto al video nella revisione')),
           h('button', { class: 'chip ' + (st.skeleton ? 'sel' : ''), onclick: (e) => { st.skeleton = !st.skeleton; store.save(); e.currentTarget.className = 'chip ' + (st.skeleton ? 'sel' : ''); e.currentTarget.textContent = st.skeleton ? 'Sì' : 'No'; } }, st.skeleton ? 'Sì' : 'No'))),
       h('div', { class: 'sec' }, 'Dati'),
@@ -40,6 +42,7 @@ export const profile = {
           } })),
         h('button', { class: 'btn danger', onclick: async () => { if (await confirmSheet({ title: 'Cancellare tutti i dati?', text: 'Atleti, sessioni e preferenze verranno eliminati da questo dispositivo.', ok: 'Cancella tutto', danger: true })) { try { localStorage.removeItem('jumplab.v4'); } catch {} location.reload(); } } }, ic('trash'), 'Cancella tutti i dati')),
       h('div', { class: 'sec' }, 'Informazioni'),
+      h('div', { class: 'small faint', style: { margin: '0 0 8px' } }, `Jump Lab v${VERSION}`),
       h('div', { class: 'card small muted', html: 'Jump Lab elabora i video <b>solo sul tuo dispositivo</b>: niente upload, nessun account. Stima l’altezza dal tempo di volo (h = g·t²/8). I risultati sono stime: non sostituiscono una pedana di forza o un sistema certificato.' }),
     );
     drawList();

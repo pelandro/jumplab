@@ -1,9 +1,10 @@
 // Persistenza locale (localStorage) di impostazioni, atleti e sessioni salvate. Nessun video viene salvato.
 
 const KEY = 'jumplab.v4';
+export const VERSION = '4.2';
 
 const DEFAULTS = () => ({
-  settings: { units: 'cm', model: 'full', delegate: 'auto', skeleton: true },
+  settings: { units: 'cm', model: 'full', delegate: 'auto', skeleton: true, refine: true },
   athletes: [{ id: 'a1', name: 'Io', heightCm: 175, massKg: 0 }],
   currentAthlete: 'a1',
   testType: 'cmj',

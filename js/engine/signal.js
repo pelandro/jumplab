@@ -216,6 +216,79 @@ export function hingeFit(t, y, i0, i1, dir, fixedG = NaN) {
   return best;
 }
 
+/**
+ * Fit "suolo inclinato -> rampa" a due rette continue in tau, con pendenza libera sul lato del suolo (|a| <= ratio·v).
+ * dir>0 = stacco (suolo prima, rampa verso l'alto dopo); dir<0 = atterraggio (rampa prima, suolo dopo).
+ * Il suolo reale non è piatto: dopo l'atterraggio l'atleta può avvicinarsi alla camera o fare un passo, e con un
+ * plateau piatto il punto di contatto scivola in avanti anche di 0,1 s.
+ */
+export function hingeFit2(t, y, i0, i1, dir, ratio = 0.35) {
+  const lo = Math.max(0, i0), hi = Math.min(y.length - 1, i1);
+  const idx = [];
+  for (let k = lo; k <= hi; k++) if (isNum(y[k])) idx.push(k);
+  if (idx.length < 7) return null;
+  const dt = (t[hi] - t[lo]) / Math.max(1, hi - lo);
+  const tA = t[idx[2]], tB = t[idx[idx.length - 3]];
+  const steps = Math.max(24, Math.round((tB - tA) / (dt / 16)));
+  let best = null;
+  for (let st = 0; st <= steps; st++) {
+    const tau = tA + ((tB - tA) * st) / steps;
+    // features: 1, suolo (u su lato suolo), rampa (|u| su lato rampa)
+    let n = 0, Sf = 0, Sr = 0, Sff = 0, Srr = 0, Sfr = 0, Sy = 0, Sfy = 0, Sry = 0;
+    for (const k of idx) {
+      const u = t[k] - tau;
+      const f = dir > 0 ? Math.min(0, u) : Math.max(0, u);
+      const r = dir > 0 ? Math.max(0, u) : Math.max(0, -u);
+      n++; Sf += f; Sr += r; Sff += f * f; Srr += r * r; Sfr += f * r; Sy += y[k]; Sfy += f * y[k]; Sry += r * y[k];
+    }
+    const sol = solve3([[n, Sf, Sr], [Sf, Sff, Sfr], [Sr, Sfr, Srr]], [Sy, Sfy, Sry]);
+    if (!sol) continue;
+    let [G, a, v] = sol;
+    if (!(v > 0)) continue;
+    if (Math.abs(a) > ratio * v) a = Math.sign(a) * ratio * v; // pendenza del suolo limitata: ricalcolo G e v con a fissata
+    if (Math.abs(a) >= ratio * v - 1e-12) {
+      // con a fissata: minimi quadrati su (G, v) di y - a·f
+      let m = 0, mr = 0, mrr = 0, my = 0, mry = 0;
+      for (const k of idx) {
+        const u = t[k] - tau;
+        const f = dir > 0 ? Math.min(0, u) : Math.max(0, u);
+        const r = dir > 0 ? Math.max(0, u) : Math.max(0, -u);
+        const yy = y[k] - a * f;
+        m++; mr += r; mrr += r * r; my += yy; mry += r * yy;
+      }
+      const det = m * mrr - mr * mr;
+      if (Math.abs(det) < 1e-18) continue;
+      v = (m * mry - mr * my) / det; G = (my - v * mr) / m;
+      if (!(v > 0)) continue;
+    }
+    let sse = 0;
+    for (const k of idx) {
+      const u = t[k] - tau;
+      const f = dir > 0 ? Math.min(0, u) : Math.max(0, u);
+      const r = dir > 0 ? Math.max(0, u) : Math.max(0, -u);
+      const e = y[k] - (G + a * f + v * r);
+      sse += e * e;
+    }
+    if (!best || sse < best.sse) best = { tau, G, v, a, sse };
+  }
+  if (best) best.rmse = Math.sqrt(best.sse / idx.length);
+  return best;
+}
+
+function solve3(A, b) {
+  const M = A.map((r, i) => [...r, b[i]]);
+  for (let c = 0; c < 3; c++) {
+    let p = c;
+    for (let r = c + 1; r < 3; r++) if (Math.abs(M[r][c]) > Math.abs(M[p][c])) p = r;
+    if (Math.abs(M[p][c]) < 1e-14) return null;
+    [M[c], M[p]] = [M[p], M[c]];
+    for (let r = c + 1; r < 3; r++) { const f = M[r][c] / M[c][c]; for (let k = c; k < 4; k++) M[r][k] -= f * M[c][k]; }
+  }
+  const x = [0, 0, 0];
+  for (let r = 2; r >= 0; r--) { let sum = M[r][3]; for (let c = r + 1; c < 3; c++) sum -= M[r][c] * x[c]; x[r] = sum / M[r][r]; }
+  return x;
+}
+
 /** Fit parabolico y = c0 + c1 x + c2 x^2 con x = t - t0. */
 export function parabolaFit(t, y, i0, i1) {
   const pts = [];
