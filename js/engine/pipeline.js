@@ -347,9 +347,14 @@ async function flowRefine(session, cb) {
   cb.stage('refine', 0.955, 'Tracciamento dei pixel del piede…');
   for (const j of jumps) {
     const win = session.windows[j.win];
-    const tcAll = win.frames.map((f) => f.tc);
-    let iA = tcAll.findIndex((t) => t >= j.to - 0.30), iB = -1;
-    for (let i = 0; i < tcAll.length; i++) if (tcAll[i] <= j.td + 0.26) iB = i;
+    // Video rallentato non ancora calibrato: i secondi del file sono ×N più lenti di quelli reali e le finestre di tracciamento (in secondi)
+    // risulterebbero troppo corte. Si lavora nel tempo fisico stimato (suggerimento di gravità); gli eventi si salvano come posizione di
+    // fotogramma, quindi restano validi qualunque calibrazione scelga poi l'utente.
+    const sc = j.timeScaleHint || 1;
+    const tcAll = win.frames.map((f) => f.tc / sc);
+    const jTo = j.to / sc, jTd = j.td / sc;
+    let iA = tcAll.findIndex((t) => t >= jTo - 0.30), iB = -1;
+    for (let i = 0; i < tcAll.length; i++) if (tcAll[i] <= jTd + 0.26) iB = i;
     if (iA < 0 || iB - iA < 12) { (session.flowSkip ||= []).push({ iA, iB, n: tcAll.length, to: j.to, td: j.td, tc0: tcAll[0], tc1: tcAll[tcAll.length - 1] }); continue; }
     cv.width = win.cw; cv.height = win.ch;
     const gray = [], kp = [], tc = [];
@@ -360,11 +365,11 @@ async function flowRefine(session, cb) {
       const px = ctx.getImageData(0, 0, cv.width, cv.height).data;
       const g = new Uint8Array(cv.width * cv.height);
       for (let q = 0, o = 0; q < g.length; q++, o += 4) g[q] = (px[o] * 299 + px[o + 1] * 587 + px[o + 2] * 114) / 1000;
-      gray.push(g); tc.push(f.tc); kp.push(f.kp ? remapToCrop(f.kp, win.crop) : null);
+      gray.push(g); tc.push(f.tc / sc); kp.push(f.kp ? remapToCrop(f.kp, win.crop) : null);
     }
-    const r = flowEvents(gray, cv.width, cv.height, tc, kp, { to: j.to, td: j.td }, { leg: leg === 'left' || leg === 'right' ? leg : undefined });
+    const r = flowEvents(gray, cv.width, cv.height, tc, kp, { to: jTo, td: jTd }, { leg: leg === 'left' || leg === 'right' ? leg : undefined });
     session.flowInfo[j.win].push({
-      leg: leg || 'both', posToLm: posOf(tcAll, j.to), posTdLm: posOf(tcAll, j.td),
+      leg: leg || 'both', posToLm: posOf(tcAll, jTo), posTdLm: posOf(tcAll, jTd),
       posTo: r.to != null ? posOf(tcAll, r.to) : null, posTd: r.td != null ? posOf(tcAll, r.td) : null, qTo: r.qTo, qTd: r.qTd,
       dbg: { n: gray.length, w: cv.width, h: cv.height, d: r.detail, kp0: kp[0] ? Array.from(kp[0].slice(93, 99)).map((v) => +v.toFixed(3)) : null },
     });
@@ -397,8 +402,10 @@ function applyFlowInfo(session) {
       if (!info) { noPixel(j, dtc); continue; }
       let to = j.to, td = j.td, srcTo = 'landmark', srcTd = 'landmark';
       const toPx = info.posTo != null ? timeAt(tc, info.posTo) : null, tdPx = info.posTd != null ? timeAt(tc, info.posTd) : null;
-      if (toPx != null && Math.abs(toPx - j.to) <= MAXD) { to = toPx; srcTo = 'pixel'; }
-      if (tdPx != null && Math.abs(tdPx - j.td) <= MAXD) { td = tdPx; srcTd = 'pixel'; }
+      // tolleranza in tempo fisico: con un video rallentato non calibrato i secondi del file sono ×N più lenti
+      const maxd = MAXD * (j.timeScaleHint && (session.cal?.mode || 'auto') === 'auto' ? j.timeScaleHint : 1);
+      if (toPx != null && Math.abs(toPx - j.to) <= maxd) { to = toPx; srcTo = 'pixel'; }
+      if (tdPx != null && Math.abs(tdPx - j.td) <= maxd) { td = tdPx; srcTd = 'pixel'; }
       if (srcTo === 'landmark' && srcTd === 'landmark') { noPixel(j, dtc); continue; }
       const toLm = j.to, tdLm = j.td;
       editJump(session, j, to, td, false);
