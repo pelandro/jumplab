@@ -72,11 +72,11 @@ function fitTrack(t, dy, cor, dir, hPx, dt, mode) {
   const vRel = f.v / hPx; // altezze-ritaglio al secondo
   // dopo l'evento servono almeno 3 fotogrammi realmente tracciati (plateau a terra per l'atterraggio, rampa per lo stacco) e prima almeno 3
   // (rampa / suolo): una traccia troncata da una zona persa darebbe un "contatto" falso
-  const span = 3 * dt;
+  const span = Math.max(2.2 * dt, 0.025); // con passi irregolari/lunghi 3 fotogrammi era troppo rigido (stacco valido scartato con 33 ms di rampa tracciata)
   const covered = t[t.length - 1] - f.tau >= span && f.tau - t[0] >= span;
   // qualità indipendente dal frame rate: residuo del fit piccolo rispetto alla salita attesa in 60 ms (v·0,06 s) e in assoluto
   const ok = covered && meanCor > 0.7 && vRel > 0.12 && f.rmse < 0.006 * f.v + 0.3;
-  return { tau: f.tau, v: f.v, rmse: f.rmse, cor: meanCor, ok };
+  return { tau: f.tau, v: f.v, rmse: f.rmse, cor: meanCor, ok, gate: { covered, before: f.tau - t[0], after: t[t.length - 1] - f.tau, span, vRel } };
 }
 
 /**
@@ -124,4 +124,36 @@ export function flowEvents(gray, w, h, tc, kp, rough, opts = {}) {
     if (good.length) { res.td = Math.min(...good.map((x) => x.tau)); res.qTd = { n: good.length, cor: median(good.map((x) => x.cor)), spread: Math.max(...good.map((x) => x.tau)) - Math.min(...good.map((x) => x.tau)) }; }
   }
   return res;
+}
+
+/**
+ * Versione robusta: con frame rate alto (passo ≤ ~10 ms) rifà il tracciamento su più sottocampionamenti dello stesso video (tutti i fotogrammi,
+ * 1 su 2 in due fasi, 1 su 3 in tre fasi). L'evento è la MEDIANA delle stime valide e l'intervallo osservato misura la ripetibilità, cioè
+ * quanto l'evento dipende dai fotogrammi scelti. Serve soprattutto allo stacco in ripresa laterale, dove il piede ruota e una singola stima
+ * oscilla di ±9–17 ms (misurato). Servono almeno 4 stime valide su 6, altrimenti l'evento non si usa; intervallo > 30 ms = non affidabile.
+ * Con frame rate più basso c'è una sola stima (nessuna ripetibilità misurabile): il chiamante usa un'incertezza di base.
+ */
+export function flowEventsRobust(gray, w, h, tc, kp, rough, opts = {}) {
+  const diffs = []; for (let i = 1; i < tc.length; i++) if (tc[i] > tc[i - 1]) diffs.push(tc[i] - tc[i - 1]);
+  const dt = median(diffs) || 1 / 30;
+  const base = flowEvents(gray, w, h, tc, kp, rough, opts);
+  if (dt > 0.0105) return { ...base, repeat: null };
+  const runs = [base];
+  for (const [step, phases] of [[2, [0, 1]], [3, [0, 1, 2]]]) {
+    for (const ph of phases) {
+      const idx = []; for (let i = ph; i < tc.length; i += step) idx.push(i);
+      runs.push(flowEvents(idx.map((i) => gray[i]), w, h, idx.map((i) => tc[i]), idx.map((i) => kp[i]), rough, opts));
+    }
+  }
+  const agg = (key) => {
+    const v = runs.map((r) => r[key]).filter((x) => x != null).sort((a, b) => a - b);
+    if (v.length < 4) return { val: null, n: v.length, range: NaN };
+    const range = v[v.length - 1] - v[0];
+    return { val: v[v.length >> 1], n: v.length, range };
+  };
+  const a = agg('to'), b = agg('td');
+  const out = { ...base, to: null, td: null, repeat: { to: a, td: b } };
+  if (a.val != null && a.range <= 0.03) { out.to = a.val; out.qTo = base.qTo || { n: 1, cor: NaN, spread: 0 }; }
+  if (b.val != null && b.range <= 0.03) { out.td = b.val; out.qTd = base.qTd || { n: 1, cor: NaN, spread: 0 }; }
+  return out;
 }

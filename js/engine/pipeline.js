@@ -8,7 +8,7 @@ import { openVideo } from './video.js';
 import { pose, PoseEngine } from './pose.js';
 import { analyze, remeasure } from './jumps.js';
 import { assessRecording } from './quality.js';
-import { flowEvents } from './footflow.js';
+import { flowEventsRobust } from './footflow.js';
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
 const FULL = { x: 0, y: 0, w: 1, h: 1 };
@@ -367,10 +367,11 @@ async function flowRefine(session, cb) {
       for (let q = 0, o = 0; q < g.length; q++, o += 4) g[q] = (px[o] * 299 + px[o + 1] * 587 + px[o + 2] * 114) / 1000;
       gray.push(g); tc.push(f.tc / sc); kp.push(f.kp ? remapToCrop(f.kp, win.crop) : null);
     }
-    const r = flowEvents(gray, cv.width, cv.height, tc, kp, { to: jTo, td: jTd }, { leg: leg === 'left' || leg === 'right' ? leg : undefined });
+    const r = flowEventsRobust(gray, cv.width, cv.height, tc, kp, { to: jTo, td: jTd }, { leg: leg === 'left' || leg === 'right' ? leg : undefined });
     session.flowInfo[j.win].push({
       leg: leg || 'both', posToLm: posOf(tcAll, jTo), posTdLm: posOf(tcAll, jTd),
       posTo: r.to != null ? posOf(tcAll, r.to) : null, posTd: r.td != null ? posOf(tcAll, r.td) : null, qTo: r.qTo, qTd: r.qTd,
+      repTo: r.repeat ? r.repeat.to.range : null, repTd: r.repeat ? r.repeat.td.range : null, scale: sc,
       dbg: { n: gray.length, w: cv.width, h: cv.height, d: r.detail, kp0: kp[0] ? Array.from(kp[0].slice(93, 99)).map((v) => +v.toFixed(3)) : null },
     });
     await tick();
@@ -382,7 +383,7 @@ async function flowRefine(session, cb) {
 /** Senza evidenza dai pixel a frame rate alto i landmark possono anticipare lo stacco e ritardare il contatto (visto fino a 87 ms e 46 ms a 120 fps). */
 function noPixel(j, dt) {
   if (dt > 0.0105 || j.manual) return;
-  j.issues.push({ level: 'warn', code: 'lmonly', text: 'Stacco e atterraggio sono stati stimati solo dai landmark del modello (il tracciamento dei pixel del piede non era affidabile: poco contrasto, piede fuori ritaglio o movimento). Ad alto frame rate i landmark possono sbagliare di decine di ms: controlla i due fotogrammi a mano.' });
+  j.issues.push({ level: 'warn', code: 'lmonly', text: 'Stacco e atterraggio sono stati stimati solo dai landmark del modello (il tracciamento dei pixel del piede non era affidabile: poco contrasto, piede fuori ritaglio, ripetibilità insufficiente o movimento). Nei nostri test su 2 atleti (5 salti) i landmark hanno sovrastimato il volo di 14–30 ms (3–5 cm) e sbagliato i singoli eventi di decine di ms, con segno diverso da un atleta all\'altro: controlla i due fotogrammi a mano.' });
   j.score = Math.max(0, j.score - 0.15);
   j.confidence = j.score >= 0.75 ? 'alta' : j.score >= 0.5 ? 'media' : 'bassa';
 }
@@ -423,8 +424,10 @@ function applyFlowInfo(session) {
         // entrambi gli eventi dai pixel: il landmark non entra (è il metodo scartato). Per evento: passo temporale (±0,25 fotogrammi), dispersione
         // tra i due piedi e un minimo di 5 ms per la definizione stessa di contatto (inizio della frenata vs arresto della punta, misurato 5–8 ms).
         // Stima euristica, non validata contro una pedana.
-        const ev = (q) => Math.hypot(0.25 * dtc, 0.005, sp(q));
-        j.uncT = Math.hypot(ev(info.qTo), ev(info.qTd));
+        // + metà dell'intervallo tra i sottocampionamenti (ripetibilità misurata dentro l'app: ~2 ms in frontale, 10–16 ms allo stacco in laterale)
+        const rp = (x) => (Number.isFinite(x) ? (x * ((j.timeScaleHint && (session.cal?.mode || 'auto') === 'auto') ? j.timeScaleHint : 1)) / 2 : 0); // x è in secondi fisici
+        const ev = (q, r) => Math.hypot(0.25 * dtc, 0.005, sp(q), rp(r));
+        j.uncT = Math.hypot(ev(info.qTo, info.repTo), ev(info.qTd, info.repTd));
       } else {
         j.uncT = Math.hypot(Math.SQRT2 * 0.35 * dtc, 0.5 * (to - toLm), 0.5 * (td - tdLm), sp(info.qTo), sp(info.qTd));
       }
