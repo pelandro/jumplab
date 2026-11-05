@@ -75,7 +75,7 @@ export const review = {
         h('div', { class: 'vdist' },
           h('div', {}, h('span', {}, 'Altezza balistica'), h('b', { class: 'num' }, ball ? `${ball.v.toFixed(1)} ${ball.u}` : '—'), h('small', {}, 'sopra la posizione dello stacco (v²/2g)')),
           Number.isFinite(j.riseFromStartCm) ? h('div', {}, h('span', {}, 'Spostamento dal punto iniziale'), h('b', { class: 'num' }, `${L(j.riseFromStartCm).v.toFixed(1)} ${L(0).u}`),
-            h('small', {}, `baricentro massimo rispetto alla posizione in piedi (allo stacco è già +${L(j.takeoffRiseCm).v.toFixed(0)} ${L(0).u}); stima ±${L(j.riseFromStartUncCm).v.toFixed(0)}`)) : null)).filter(Boolean));
+            h('small', {}, `baricentro massimo rispetto alla posizione in piedi (allo stacco è già +${L(j.takeoffRiseCm).v.toFixed(0)} ${L(0).u}); stima ±${L(j.riseFromStartUncCm).v.toFixed(0)}`)) : null)].filter(Boolean));
     };
     const drawQuality = () => {
       const q = session.quality;
