@@ -523,3 +523,34 @@ Ora l'app mostra come cifra principale la **stima integrata** (equivalente all'i
 - I partecipanti dello studio con pedane sono 12, a mani sui fianchi, con salti di ~28 cm: non rappresentano atleti con oscillazione delle braccia.
 - L'istante di stacco domina l'errore (±1,4 cm per 5 ms) e la sua definizione (pixel contro soglia di forza) può differire di alcuni ms in modo sistematico.
 - Per verificare: una pedana, o un accelerometro sincronizzato (vedi sopra).
+
+## Prova con gli AirPods Pro 2 come accelerometro (v4.7.1)
+
+**Dati**: Sensor Logger, una registrazione continua di 43,6 s con 4 CMJ a mani sui fianchi di un atleta di 181 cm e 76 kg (2 frontali, 2 laterali; battiti di tallone prima del secondo e del quarto), ritagliati in 4 clip a 240/120 fps. Colonne: accelerazione utente (in **g**), gravità, rotazione, quaternioni.
+- **Frequenza reale: 50 Hz esatti** (20 ms tra i campioni, due soli buchi di ~145 ms) anche chiedendone 100: risoluzione ±6 ms per evento.
+- **Il segnale è pulito**: in volo la forza specifica scende a 0,0–0,2 g per 0,45–0,52 s e finisce con un picco d'impatto; l'accelerazione verticale in volo vale −1,005 / −1,020 / −1,017 / −0,994 g (entro il 2 % della caduta libera) e la velocità integrata ha pendenza −9,98 / −10,06 / −10,42 / −9,70 m/s² (±6 % su −9,81). I colpi di tallone compaiono come picchi di 2,2–3,7 g (3 prima del salto 2, 2 prima del salto 4).
+
+**Risultato principale (negativo): la testa a 50 Hz non è un riferimento per il tempo di volo né per l'altezza.**
+| Salto | Volo dai pixel | Volo dagli AirPods (|f| < 0,5 g) | Differenza |
+|---|---|---|---|
+| 1 frontale | 530 ms | 451 ms | −79 |
+| 2 laterale | 573 ms | 505 ms | −68 |
+| 3 laterale | 566 ms | 517 ms | −49 |
+| 4 frontale | 568 ms | 462 ms | −106 |
+Media −76 ± 23 ms ⇒ altezza sottostimata del ~24 % (−6…−13 cm). **Causa**: la finestra di caduta libera della testa inizia 54 ± 18 ms **dopo** lo stacco visto dal video (assumendo l'impatto come sincronismo): nei primi istanti di volo la testa subisce ancora forze interne del busto (decelerazione fino a −1,6 g) prima di entrare in vera caduta libera.
+- **Velocità di stacco per integrazione**: picco di 3,5–3,8 m/s (altezza 63–74 cm) contro ~2,7 m/s del baricentro: la testa si muove più del baricentro nel finale della spinta (il busto si raddrizza). Non usabile.
+- **Coerenza degli istanti**: il picco di velocità della testa cade 56 ± 4 ms prima dello stacco dal video (dispersione di 4 ms sui 4 salti), fisiologicamente plausibile; è un controllo di coerenza, non una validazione (il ritardo dell'impatto verso la testa non è misurato).
+- **Cosa resta utile**: l'impatto all'atterraggio come marcatore (±20 ms), i colpi di tallone per sincronizzare, il fatto che gli istanti dai pixel siano coerenti con il sensore. Per un riferimento indipendente serve un sensore sul **bacino o sul tronco a ≥ 100 Hz** (non provato).
+
+**Gli stessi 4 salti con l'app** (statura 181 cm, massa 76 kg, tutti i fotogrammi; Heavy+specchio / Full; altezze in cm):
+| Salto | T dai pixel (ms) | Volo | Parabola | **Integrata** | Δ (traiettoria · statico) |
+|---|---|---|---|---|---|
+| 1 frontale | 529 / 532 | 34,3 / 34,7 | 34,1 / 34,5 | **34,0 / 34,8** | 0,4 · −1,9 |
+| 2 laterale | 575 / 571 | 40,5 / 39,9 | 39,3 / 38,5 | **40,3 / 39,4** | 2,4 · −5,1 |
+| 3 laterale | — / 566 | — / 39,2 | 39,1 / 38,7 | **— / 38,9** | 1,0 · −6,6 (Full) |
+| 4 frontale | 566 / 570 | 39,2 / 39,8 | 39,8 / 40,5 | **40,4 / 40,2** | −1,1 · −8,8 |
+- **Con atterraggi rigidi i tre metodi concordano entro ~1 cm**: la stima integrata coincide con il volo (differenza −0,3…+1,0 cm), a differenza del primo atleta, dove l'atterraggio flesso la abbassava di 3–4 cm: la correzione agisce solo dove serve.
+- **Salto 3 con Heavy**: il tracciamento dei pixel non ha trovato l'atterraggio e l'app ha ripiegato sui landmark (volo 650 ms, 51,8 cm): la validazione l'ha segnalato come «incoerente» (Δ dalla traiettoria 27 cm, tensione 4,6). Con Full gli eventi sono coerenti.
+- **Δ statico negativo (−2…−13 cm)**: in questi salti la misura statica ha un bias negativo (fisicamente Δ ≥ ~0), ancora da spiegare; la combinazione ne è poco influenzata perché in tensione con le altre evidenze.
+- **Passo di campionamento**: a passo 2 (12,5 ms) il tracciamento dei pixel perdeva eventi (salto 1 con Full, salto 3 con Heavy); a tutti i fotogrammi (4,2 ms) solo il salto 3 con Heavy. Limite noto: sotto i ~10,5 ms l'app ripete la misura per valutarne la stabilità.
+
