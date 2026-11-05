@@ -65,7 +65,7 @@ export const review = {
           ...m.pro.map((t) => h('div', { class: 'vpro' }, '✓ ' + t)), ...m.contro.map((t) => h('div', { class: 'vcon' }, '− ' + t))));
       const rows = ['volo', 'baricentro', 'parabola'].map((id) => row(j.methods.find((m) => m.id === id)));
       const ball = Number.isFinite(j.ballisticCm) ? L(j.ballisticCm) : null;
-      valBox.replaceChildren(
+      valBox.replaceChildren(...[
         h('div', { class: 'row', style: { justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' } },
           h('h3', { style: { margin: 0 } }, 'Validazione dei tre metodi'), h('span', { class: 'conf ' + lv }, v.titolo)),
         h('p', { class: 'tiny muted', style: { margin: '0 0 6px' } }, 'I tre valori non si mediano: si confrontano con tolleranze fisiche.' + (v.recommended ? ` Da usare: ${j.methods.find((m) => m.id === v.recommended).nome.toLowerCase()} (${v.why}).` : ` ${v.why ? v.why[0].toUpperCase() + v.why.slice(1) + '.' : ''}`)),
@@ -75,7 +75,7 @@ export const review = {
         h('div', { class: 'vdist' },
           h('div', {}, h('span', {}, 'Altezza balistica'), h('b', { class: 'num' }, ball ? `${ball.v.toFixed(1)} ${ball.u}` : '—'), h('small', {}, 'sopra la posizione dello stacco (v²/2g)')),
           Number.isFinite(j.riseFromStartCm) ? h('div', {}, h('span', {}, 'Spostamento dal punto iniziale'), h('b', { class: 'num' }, `${L(j.riseFromStartCm).v.toFixed(1)} ${L(0).u}`),
-            h('small', {}, `baricentro massimo rispetto alla posizione in piedi (allo stacco è già +${L(j.takeoffRiseCm).v.toFixed(0)} ${L(0).u}); stima ±${L(j.riseFromStartUncCm).v.toFixed(0)}`)) : null));
+            h('small', {}, `baricentro massimo rispetto alla posizione in piedi (allo stacco è già +${L(j.takeoffRiseCm).v.toFixed(0)} ${L(0).u}); stima ±${L(j.riseFromStartUncCm).v.toFixed(0)}`)) : null)).filter(Boolean));
     };
     const drawQuality = () => {
       const q = session.quality;
