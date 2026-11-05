@@ -466,10 +466,9 @@ Richiesta: ricontrollare la correttezza dei tre metodi e dei parametri, raffinar
 | Errore dominante della catena | propagazione | l'**istante di stacco**: 5 ms ⇒ ±1,4 cm sull'altezza da velocità di stacco; il modello non può eliminarlo |
 
 ### Il modello integrato (`js/engine/fusion.js`)
-Fisica: tra stacco e atterraggio il baricentro è in caduta libera; se all'atterraggio è più basso di Δ, **v₀ = g·T/2 − Δ/T** e h = v₀²/2g (l'altezza delle pedane con impulso-quantità di moto). Il volo ha T preciso ma ignora Δ. Δ si misura in **due modi indipendenti**:
-1. **dinamico**, dalla traiettoria: Δ̂ = −g·T·(t_culmine − metà volo), indipendente dalla scala;
-2. **statico**, dalla posizione: altezza del baricentro sopra il piede più basso allo stacco meno all'atterraggio (mediana su ±40 ms; con i piedi a terra nei due istanti è direttamente Δ).
-Si aggiunge una **prior debole di popolazione, Δ = 3,5 ± 4 cm** (vedi sotto). Combinazione (non è una media dei tre metodi): **Δ\* = media pesata per precisione** delle tre evidenze; se le due misure divergono oltre le loro incertezze l'incertezza a posteriori si gonfia in proporzione (rapporto di Birge). Incertezza: (g·σ_ev/2)² + (σ_Δ\*/T)². I pesi e la tensione sono mostrati nei risultati; i tre metodi restano come controlli, con affidabilità motivata.
+Fisica: tra stacco e atterraggio il baricentro è in caduta libera; se all'atterraggio è più basso di Δ, **v₀ = g·T/2 − Δ/T** e h = v₀²/2g (l'altezza delle pedane con impulso-quantità di moto). Il volo ha T preciso ma ignora Δ. Δ si misura **dalla traiettoria** del baricentro: Δ̂ = −g·T·(t_culmine − metà volo), indipendente dalla scala.
+
+> **Correzione (v4.7.2).** La versione 4.7.0–4.7.1 usava anche una seconda misura «statica» di Δ (altezza del baricentro sopra il piede allo stacco meno all'atterraggio) e la presentava come indipendente. **Non lo è e non è affidabile sui video reali**, vedi «La misura statica di Δ» più sotto: è stata tolta dall'app. In 4.7.2 Δ\* è la media pesata per precisione di **due** evidenze: la misura dinamica e una **prior debole di popolazione, Δ = 3,5 ± 4 cm** (vedi sotto). Non è una media dei tre metodi. L'incertezza è (g·σ_ev/2)² + (σ_Δ\*/T)². I pesi sono mostrati nei risultati; i tre metodi restano come controlli, con affidabilità motivata. Il canale per una seconda misura di Δ resta in `fusion.js` (con test) per quando ci sarà un riferimento davvero indipendente, ma l'app non lo alimenta.
 
 **Monte Carlo** (simulazione autonoma, 120 fps, rumore del baricentro 1 cm, istanti 5 ms; solo la tecnica dinamica + prior; RMSE su h in cm, volo / apice / **integrata**):
 | Popolazione di Δ | senza deriva del proxy | con deriva 2 cm |
@@ -480,25 +479,25 @@ Si aggiunge una **prior debole di popolazione, Δ = 3,5 ± 4 cm** (vedi sotto). 
 | mista N(6, 5) | 3,97 / 1,55 / 1,77 | 3,91 / 1,85 / 1,99 |
 **Costo dichiarato della prior**: con popolazioni molto più flesse della prior la stima integrata ha un bias di +1,6…+2,1 cm e perde 0,6–0,7 cm rispetto alla sola parabola; rispetto alla sola parabola guadagna 0,2–0,6 cm con popolazioni tipiche o rigide; rispetto al tempo di volo l'errore è 1,7–1,8 volte inferiore con popolazioni tipiche, 2,0–2,2 volte con popolazioni miste e **uguale** (nessun vantaggio) con atterraggi rigidi.
 
-**Pipeline completa con verità nota** (simulatore con atterraggio più basso dello stacco di Δ, 240 fps, eventi automatici): errore della stima integrata **0,4 / 0,7 / 0,9 cm** con Δ = 0 / 5 / 10 cm (il solo volo sovrastima di 0,5 / 3,0 / 5,4 cm); Δ statico **−0,05 / 4,6 / 9,5 cm** (veri 0 / 5 / 10).
+**Pipeline completa con verità nota** (simulatore con atterraggio più basso dello stacco di Δ, 240 fps, eventi automatici, 3 semi; ricontrollata con il codice 4.7.2, solo traiettoria + prior): errore della stima integrata **+0,4 / +0,5 / +0,7 / +0,8 / +1,1 cm** con Δ = 0 / 3 / 5 / 8 / 12 cm (il solo volo sovrastima di 0,5 / 2,0 / 3,0 / 4,4 / 6,3 cm; la sola parabola di 0,4–0,7 cm). Nel simulatore la misura statica funzionava (−0,05 / 4,6 / 9,5 cm su Δ = 0 / 5 / 10) perché il suolo e il piede sono noti esattamente: è proprio ciò che manca nei video reali.
 
-### Un risultato scomodo: le due misure di Δ non concordano sui video reali
-| Video | Δ dalla traiettoria | Δ statico | tensione |
-|---|---|---|---|
-| 0181 frontale | 12,6 | 3,9 | 1,7 |
-| 0180 frontale | 11,8 | 5,3 | 1,0 |
-| 0207 laterale | 7,0 | 9,1 | 0,5 |
-| 0208 laterale | 13,9 | 4,9 | 2,3 |
-In 3 salti su 4 la traiettoria dà 12–14 cm e la posizione statica 4–5 cm (in linea con la letteratura, vedi sotto); in 0207 concordano. Lo scarto (~7 cm) supera il rumore delle singole misure: **una delle due ha un errore sistematico su questi video e senza pedana non so quale**. Ipotesi non verificate: istanti entrambi in ritardo di ~10–13 ms (sposterebbe la traiettoria di +5…+7 cm, ma anche la misura statica), baricentro stimato dai landmark non balistico nella seconda metà del volo, otturatore rolling a 60 fps. Il modello non sceglie: usa entrambe con i loro pesi, gonfia l'incertezza quando divergono e abbassa il livello di affidabilità della stima integrata (tensione > 1,5).
+### La misura statica di Δ: cosa avevo detto, cosa era sbagliato (correzione v4.7.2)
+La v4.7.0 riportava «le due misure di Δ non concordano sui video reali» (traiettoria 12–14 cm contro statica 4–5 cm in 3 salti su 4) e lasciava intendere che una delle due avesse un errore sistematico non identificabile. Con i quattro CMJ del terzo atleta (5 nov, 181 cm / 76 kg) ho analizzato **15 analisi su 3 atleti** e trovato che **il difetto era della misura statica**, non una discordanza tra due misure buone:
+- **(a) Non è indipendente**: senza un riferimento al suolo, «altezza del baricentro allo stacco meno all'atterraggio» coincide algebricamente con l'asimmetria del culmine (per una parabola Δ = −b·T). Le due misure erano la stessa grandezza vista due volte con rumori diversi.
+- **(b) Riferita al landmark del piede**: bias −7 ± 4,5 cm (a terra il landmark del piede risulta già 8–14 cm sopra il suolo allo stacco e 4–8 cm al contatto, per la postura del piede).
+- **(c) Riferita al suolo stimato dai landmark**: −2 ± 7 cm; lo «spostamento del suolo» (fino a 13 cm) è la postura del piede, non un movimento reale.
+- **(d) Riferita al punto del piede tracciato dai pixel**: +2 ± 8 cm (lo stesso punto del piede non è sulla stessa zona dell'appoggio allo stacco e all'atterraggio).
+Nessun riferimento esaminato ha dato un errore piccolo e stabile: la misura è stata **tolta dall'app**. Il valore negativo (−2…−13 cm, fisicamente impossibile) sul terzo atleta era il segnale che qualcosa non andava. **Resta vero e non verificato** che un ritardo comune di entrambi gli istanti sposta Δ̂ di +5,4 cm ogni +10 ms senza essere visibile al modello.
+Controllo di plausibilità (non una validazione): con la **stessa pipeline** (stessi pixel, stesso baricentro, 240 fps) il terzo atleta, con atterraggio rigido, dà Δ̂ tra −1,4 e +2,9 cm, mentre atleti 1 e 2 danno 7–14 cm. Se l'ampia Δ̂ degli atleti 1 e 2 fosse un artefatto di ritardo comune degli istanti, comparirebbe anche nel terzo; non c'è. Non esclude un ritardo comune piccolo (pochi ms, ≲2 cm).
 
-### Sui 4 salti reali (istanti dai pixel; altezze in cm)
-| Video | Volo | Parabola | **Integrata** | Δ a posteriori | Pesi traiettoria / statico / prior |
-|---|---|---|---|---|---|
-| 0181 frontale | 34,9 | 28,9 ± 2,0 | **31,9 ± 1,9** | 6,0 | 25 / 48 / 27 % |
-| 0180 frontale | 46,9 | 41,2 ± 2,7 | **44,1 ± 1,4** | 5,8 | 16 / 52 / 32 % |
-| 0207 laterale | 44,7 | 41,2 ± 1,5 | **41,2 ± 1,2** | 7,0 | 49 / 31 / 20 % |
-| 0208 laterale | 42,4 | 35,8 ± 1,4 | **38,0 ± 2,0** | 9,0 | 49 / 32 / 19 % |
-La stima integrata cade tra parabola e volo, più vicina al volo dove l'evidenza statica e la prior pesano di più. **Nessuna di queste evidenze è stata usata per ritoccare la prior** (sarebbe circolare con 4 salti di 2 atleti): la prior viene dalla letteratura.
+### Sui 4 salti reali dei primi due atleti (istanti dai pixel; altezze in cm; codice 4.7.2: traiettoria + prior)
+| Video | Volo | Parabola | **Integrata** | Δ traiettoria | Δ a posteriori | Peso traiettoria |
+|---|---|---|---|---|---|---|
+| 0181 frontale | 34,9 | 28,9 ± 2,0 | **31,0 ± 1,5** | 12,6 | 7,9 | 49 % |
+| 0180 frontale | 46,9 | 41,2 ± 2,7 | **43,8 ± 1,8** | 11,8 | 6,3 | 34 % |
+| 0207 laterale | 44,7 | 41,2 ± 1,5 | **41,7 ± 1,3** | 7,0 | 6,0 | 72 % |
+| 0208 laterale | 42,4 | 35,8 ± 1,4 | **37,1 ± 1,3** | 13,9 | 11,0 | 72 % |
+Con la v4.7.0 (con evidenza statica) le integrate erano 31,9 / 44,1 / 41,2 / 38,0: la differenza di togliere la misura statica è 0,3–0,9 cm. **Nessuna evidenza di questi salti è stata usata per ritoccare la prior** (sarebbe circolare): la prior viene dalla letteratura.
 
 ### Altezza principale
 Ora l'app mostra come cifra principale la **stima integrata** (equivalente all'impulso-quantità di moto delle pedane), con il tempo di volo sempre visibile accanto; si può tornare al solo tempo di volo (come le app a 240 fps) dal pulsante nei risultati o dalle impostazioni. RSI, Samozino e velocità media seguono la scelta.
@@ -518,7 +517,7 @@ Ora l'app mostra come cifra principale la **stima integrata** (equivalente all'i
 
 ### Limiti (invariati e nuovi)
 - **Nessuna verità da pedana**: il modello è validato con simulazione e coerenza fisica, non con misure di riferimento. L'errore assoluto sui video reali resta non dimostrato.
-- **Le due misure di Δ divergono in 3 salti su 4** (7 cm): un errore sistematico di una delle due, non identificato. Se è condiviso (stessi istanti, stesso baricentro) non si vede nemmeno dalla tensione.
+- **Δ è misurato in un solo modo** (traiettoria) più la prior: la seconda misura «statica» della 4.7.0–4.7.1 è stata tolta perché non indipendente e con bias di segno diverso a seconda del riferimento (vedi sopra). Un ritardo comune degli istanti (+5,4 cm di Δ̂ ogni +10 ms) resta invisibile al modello.
 - La prior (3,5 ± 4 cm) e le incertezze di ingresso sono stime; con atterraggi molto più flessi della prior la stima ha un bias positivo di 1–2 cm.
 - I partecipanti dello studio con pedane sono 12, a mani sui fianchi, con salti di ~28 cm: non rappresentano atleti con oscillazione delle braccia.
 - L'istante di stacco domina l'errore (±1,4 cm per 5 ms) e la sua definizione (pixel contro soglia di forza) può differire di alcuni ms in modo sistematico.
@@ -542,15 +541,38 @@ Media −76 ± 23 ms ⇒ altezza sottostimata del ~24 % (−6…−13 cm). **Cau
 - **Coerenza degli istanti**: il picco di velocità della testa cade 56 ± 4 ms prima dello stacco dal video (dispersione di 4 ms sui 4 salti), fisiologicamente plausibile; è un controllo di coerenza, non una validazione (il ritardo dell'impatto verso la testa non è misurato).
 - **Cosa resta utile**: l'impatto all'atterraggio come marcatore (±20 ms), i colpi di tallone per sincronizzare, il fatto che gli istanti dai pixel siano coerenti con il sensore. Per un riferimento indipendente serve un sensore sul **bacino o sul tronco a ≥ 100 Hz** (non provato).
 
-**Gli stessi 4 salti con l'app** (statura 181 cm, massa 76 kg, tutti i fotogrammi; Heavy+specchio / Full; altezze in cm):
-| Salto | T dai pixel (ms) | Volo | Parabola | **Integrata** | Δ (traiettoria · statico) |
-|---|---|---|---|---|---|
-| 1 frontale | 529 / 532 | 34,3 / 34,7 | 34,1 / 34,5 | **34,0 / 34,8** | 0,4 · −1,9 |
-| 2 laterale | 575 / 571 | 40,5 / 39,9 | 39,3 / 38,5 | **40,3 / 39,4** | 2,4 · −5,1 |
-| 3 laterale | — / 566 | — / 39,2 | 39,1 / 38,7 | **— / 38,9** | 1,0 · −6,6 (Full) |
-| 4 frontale | 566 / 570 | 39,2 / 39,8 | 39,8 / 40,5 | **40,4 / 40,2** | −1,1 · −8,8 |
-- **Con atterraggi rigidi i tre metodi concordano entro ~1 cm**: la stima integrata coincide con il volo (differenza −0,3…+1,0 cm), a differenza del primo atleta, dove l'atterraggio flesso la abbassava di 3–4 cm: la correzione agisce solo dove serve.
-- **Salto 3 con Heavy**: il tracciamento dei pixel non ha trovato l'atterraggio e l'app ha ripiegato sui landmark (volo 650 ms, 51,8 cm): la validazione l'ha segnalato come «incoerente» (Δ dalla traiettoria 27 cm, tensione 4,6). Con Full gli eventi sono coerenti.
-- **Δ statico negativo (−2…−13 cm)**: in questi salti la misura statica ha un bias negativo (fisicamente Δ ≥ ~0), ancora da spiegare; la combinazione ne è poco influenzata perché in tensione con le altre evidenze.
+**Gli stessi 4 salti con l'app** (statura 181 cm, massa 76 kg, tutti i fotogrammi; Heavy+specchio / Full; altezze in cm; codice 4.7.2, senza misura statica):
+| Salto | T dai pixel (ms) | Volo | Parabola | **Integrata** | Δ traiettoria | curvatura/g (scala) |
+|---|---|---|---|---|---|---|
+| 1 frontale | 529 / 532 | 34,3 / 34,7 | 34,1 / 34,5 | **33,4 / 33,5** | 0,4 / 0,3 | 0,97 / 1,00 |
+| 2 laterale | 575 / 571 | 40,5 / 39,9 | 39,3 / 38,5 | **39,1 / 38,3** | 2,4 / 2,9 | 1,16 / 1,17 |
+| 3 laterale | — / 566 | — / 39,2 | — / 38,7 | **— / 37,9** | — / 1,0 | — / 1,08 |
+| 4 frontale | 566 / 570 | 39,2 / 39,8 | 39,8 / 40,5 | **38,8 / 38,7** | −1,1 / −1,4 | 0,95 / 1,00 |
+- **Con atterraggi rigidi i tre metodi concordano entro ~1 cm** (volo − parabola −0,7…+1,4 cm): dove Δ è davvero piccolo, volo, parabola e integrata coincidono; sul primo atleta (atterraggio flesso) il volo era 3–7 cm sopra la parabola. La stima integrata è 0,4–1,6 cm **sotto** il volo perché la prior (Δ = 3,5 cm) trascina Δ\* a 0,8–3,2 cm: è il costo dichiarato della prior con atterraggi rigidi (≈ −Δ/2), non un errore nascosto.
+- **Scala dell'app verificata con altezza e massa note** (curvatura/g della parabola, atteso 1,00): 0,95 – 1,17 su 8 analisi (media 1,05, dev. st. 8 %), in linea con l'8 % assunto come incertezza di scala (atleti 1–2: 0,96–1,13). Il valore 1,16–1,17 del salto 2 (laterale) è il più lontano: la prospettiva non è corretta.
+- **Eventi dai pixel**: Heavy e Full danno lo stesso T entro 3–4 ms (salto 1: 529/532; 2: 575/571; 4: 566/570). I **landmark** sovrastimano il volo di +37…+110 ms sulle 7 analisi con entrambi gli eventi (stacco in anticipo di 44–72 ms e/o atterraggio in ritardo di 3–64 ms): i pixel sono indispensabili, come già visto sui primi due atleti.
+- **Salto 3 con Heavy**: il tracciamento dei pixel non trovava l'atterraggio e l'app ripiegava sui landmark (volo 650 ms, 51,8 cm); la validazione lo segnalava «incoerente» (Δ dalla traiettoria 27 cm). **Correzione 4.7.2**: se i pixel non trovano uno degli istanti con i landmark raffinati, l'app riprova con i landmark di base (prima del raffinamento) prima di ripiegare; vedi sotto l'esito nell'app.
 - **Passo di campionamento**: a passo 2 (12,5 ms) il tracciamento dei pixel perdeva eventi (salto 1 con Full, salto 3 con Heavy); a tutti i fotogrammi (4,2 ms) solo il salto 3 con Heavy. Limite noto: sotto i ~10,5 ms l'app ripete la misura per valutarne la stabilità.
+
+## v4.7.2 — prova dell'app intera sui quattro video grezzi (correzioni trovate)
+
+Fino a qui i quattro CMJ del terzo atleta erano stati analizzati con script esterni su finestre già ritagliate attorno al salto. Questa è la prima prova **dell'app vera, sul video intero**, un file alla volta (Chromium senza GPU; il Chromium del sandbox non decodifica l'HEVC, quindi i .mov sono stati ricodificati in H.264 conservando i tempi dei fotogrammi; statura 181 cm, massa 76 kg). Ha trovato tre difetti che le prove sulle finestre non potevano vedere.
+
+**1. Un errore mio (4.7.2 iniziale) disattivava i pixel.** Il ripiego sui landmark di base, scritto per recuperare il salto 3, andava in errore (`TypeError`) quando la misura ripetuta non esisteva (passo > 10,5 ms) o ne aveva solo uno dei due eventi: l'app saltava **tutto** il passo dei pixel e ricadeva sui landmark (volo 664 ms, 54 cm, contro 569 ms, 39,6 cm). Corretto con una funzione pura (`mergeFlowFallback`) e tre test che coprono proprio quei casi.
+
+**2. Falsi voli.** I video iniziano con l'atleta fermo per ~1 s e, in due, con i colpi di tallone: il rilevatore di voli (che si basa solo sull'altezza dei piedi) ha trovato **6 voli che non sono salti** accanto ai 4 veri: persona ferma (0,62 s, bacino fermo: curvatura 0,01·g), un volo a fine clip (0,40 s), un volo di 1,42 s / 247 cm, colpi di tallone/saltelli (0,14, 0,33 e 0,37 s). In una prima prova con la GPU un falso volo di 0,89 s (96 cm) era stato dato «affidabilità alta» (landmark diversi da quelli della CPU: gli esiti dipendono dal modello e dal delegato). Ora `flagImplausible` (in `validate.js`) segna come «probabile falso rilevamento», con il motivo, un volo che soddisfa uno di questi criteri: bacino che non segue la caduta libera (curvatura fuori da 0,5–2 g o parabola non adattabile) con misura debole; parabola non adattabile con altezza dei piedi incoerente; affidabilità < 30 %; nei test a salto singolo (CMJ, SJ) volo < 60 % di quello principale senza evidenza piena. **Si esclude in automatico solo se esiste un altro volo plausibile**, mai se è l'unico, mai se l'utente l'ha incluso a mano o ne ha corretto gli istanti; i voli restano visibili e si includono con un tocco. Sui 4 video: 10 voli rilevati, 4 veri tenuti, 6 falsi esclusi (0 veri persi). **Limite dichiarato**: soglie e criteri sono stati messi a punto su questi 4 video di un solo atleta; con altri atleti e riprese possono sbagliare in entrambi i sensi (per questo l'esclusione è reversibile e motivata).
+
+**3. Campionamento dei pixel.** Con 240 fps la finestra principale viene campionata 1 fotogramma su 2–3 (12,5 ms): un singolo tracciamento a quel passo sul salto 1 dava 544 ms contro 529–532 ms a passo nativo (4,2 ms), e provando passi 1–4 su quel video una singola stima oscilla di 527–547 ms. L'app ora **rilegge dal video tutti i fotogrammi nativi attorno al volo** (≈ 1,1 s, ritagliati come la finestra, senza ripetere la posa: i landmark servono solo come punto di partenza della zona da seguire, interpolati nel tempo) e `flowEventsRobust` ripete la misura su 6 sottocampionamenti prendendo la mediana. Vale solo con il decodificatore WebCodecs e finestre campionate più rade del video (240 fps); per i video a 120 fps o con il ripiego `<video>` non cambia nulla. Effetto sui 4 salti rispetto al passo rado dell'app: T cambia di 0–3,5 ms (nessun bias evidente); l'incertezza dichiarata sull'integrata sale di 0,2–0,5 cm in tre salti su quattro (±1,8–2,2 contro ±1,6–2,2 cm) e scende nel quarto, perché ora la ripetibilità (intervallo tra sottocampionamenti, 4–14 ms) è **misurata** invece che assente: è un'informazione in più, non una perdita di precisione.
+
+**Risultati dell'app sui 4 salti** (altezze in cm; incertezza 1σ; confronto con la tabella sopra, ottenuta con script esterni a passo 4,2 ms con landmark Heavy+specchio / Full):
+| Salto | T app (ms) | Volo | Parabola | **Integrata** | Δ traiettoria | T script hf / fb (ms) |
+|---|---|---|---|---|---|---|
+| 1 frontale | 540,3 | 35,8 | 34,1 | **34,1 ± 2,2** | 3,5 | 529 / 532 |
+| 2 laterale | 564,3 | 39,0 | 38,6 | **38,1 ± 1,8** | 0,9 | 575 / 571 |
+| 3 laterale | 568,7 | 39,7 | 38,5 | **38,3 ± 1,9** | 2,3 | — / 566 |
+| 4 frontale | 569,6 | 39,8 | 40,2 | **39,3 ± 1,8** | −0,8 | 566 / 570 |
+Le due catene (app e script, che differiscono per ritaglio, ricampionamento, compressione JPEG, landmark di partenza) danno tempi di volo che **differiscono di +11, −8, +3, +2 ms (scarto quadratico medio 7 ms)** sugli stessi quattro salti. Non è un bias: è la **ripetibilità del metodo dei pixel rispetto a scelte di preelaborazione** e coincide con l'incertezza che l'app dichiara sul tempo di volo (≈ 9 ms, cioè ±1,2 cm sull'altezza da volo). Quale delle due sia più vicina al vero **non è noto**: senza pedana la verità non c'è, e un controllo a occhio sui fotogrammi dell'atterraggio del salto 1 (a passo di 4–8 ms, VFR) non ha permesso di decidere.
+Da questi 4 salti (rigidi, Δ ≈ 0–3 cm) volo, parabola e integrata concordano entro ~2 cm; l'integrata è 0,3–1,7 cm sotto il volo per effetto della prior (vedi sopra).
+
+**Resta non provato**: l'errore assoluto (nessuna pedana), le soglie dei falsi voli su altri atleti, il comportamento su iPhone (qui solo Chromium su CPU con video ricodificato; gli istanti reali dei file originali HEVC passano dallo stesso decodificatore WebCodecs in Safari ma non l'ho potuto provare).
 

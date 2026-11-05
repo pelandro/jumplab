@@ -219,6 +219,45 @@ export function validateJump(j) {
 }
 
 /**
+ * Voli che non sembrano salti (persona ferma, passi, oscillazioni dei piedi): nel video di prova di un atleta fermo per 1 s prima del salto il tracciamento ha
+ * «trovato» un volo di 0,62–0,89 s (fino a 96 cm, affidabilità «alta» nella prima versione). Criteri, tutti da dati già calcolati:
+ *   · il bacino non segue la caduta libera (curvatura fuori da 0,5–2 volte g, o parabola non adattabile) E la misura è debole (affidabilità bassa o metodi incoerenti);
+ *   · oppure la traiettoria del baricentro non è adattabile E l'altezza dei piedi in volo non corrisponde al tempo di volo (avviso `footrise`);
+ *   · oppure affidabilità complessiva < 30 %;
+ *   · solo nei test a salto singolo (CMJ, CMJ con braccia, SJ): volo più breve del 60 % del volo plausibile più lungo del video e con evidenza non piena (affidabilità non alta, metodi non coerenti
+ *     o contromovimento assente): colpi di tallone, saltelli, passi (nei video di prova: 2,5 cm/141 ms e 13,7 cm/334 ms accanto a un CMJ di 39 cm/570 ms).
+ * Si esclude dalla serie in automatico SOLO se esiste almeno un altro volo plausibile (un video con un solo volo non viene mai svuotato) e se l'utente non ha
+ * deciso a mano (`userSet`) né corretto gli istanti (`manual`). Il motivo resta tra gli avvisi; i voli vengono comunque mostrati e si possono includere.
+ */
+export function flagImplausible(jumps) {
+  const reasonsOf = (j) => {
+    const r = [];
+    const arcBad = !j.timeScaleHint && (!fin(j.gRatio) || j.gRatio < 0.5 || j.gRatio > 2);
+    const weak = j.confidence === 'bassa' || j.verdict?.status === 'incoerenti';
+    if (arcBad && weak) r.push(fin(j.gRatio) ? `il bacino non segue la caduta libera (curvatura ${j.gRatio.toFixed(2)}·g invece di 1)` : 'la traiettoria del bacino in volo non si adatta a una parabola');
+    if (!fin(j.apexCm) && (j.issues || []).some((x) => x.code === 'footrise')) r.push('la traiettoria del baricentro non è adattabile e l\'altezza dei piedi in volo non corrisponde al tempo di volo');
+    if (fin(j.score) && j.score < 0.3) r.push(`affidabilità molto bassa (${(j.score * 100).toFixed(0)} %)`);
+    return r;
+  };
+  const rs = jumps.map(reasonsOf);
+  const single = (j) => j.testType === 'cmj' || j.testType === 'cmj_arms' || j.testType === 'sj';
+  const refT = Math.max(0, ...jumps.filter((j, i) => !rs[i].length && j.confidence !== 'bassa' && fin(j.T)).map((j) => j.T));
+  jumps.forEach((j, i) => {
+    if (rs[i].length || !single(j) || !(refT > 0) || !(j.T < 0.6 * refT)) return;
+    const full = j.confidence === 'alta' && j.verdict?.status === 'coerenti' && !(j.issues || []).some((x) => x.code === 'nodip');
+    if (!full) rs[i].push(`volo molto più breve (${(j.T * 1000).toFixed(0)} ms) di quello principale del video (${(refT * 1000).toFixed(0)} ms), senza evidenza piena: colpo di tallone, saltello o passo`);
+  });
+  jumps.forEach((j, i) => {
+    j.issues = (j.issues || []).filter((x) => x.code !== 'val_falso');
+    j.implausible = rs[i].length ? rs[i] : null;
+    if (j.manual || j.userSet) { j.autoExcluded = false; return; }
+    j.autoExcluded = !!(rs[i].length && rs.some((x, k) => k !== i && !x.length));
+    j.excluded = j.autoExcluded;
+    if (rs[i].length) j.issues.push({ level: 'warn', code: 'val_falso', text: `Probabile falso rilevamento (non un salto: persona ferma, passo o oscillazione): ${rs[i].join('; ')}.${j.autoExcluded ? ' Escluso in automatico dalla serie: includilo se è un salto vero.' : ''}` });
+  });
+}
+
+/**
  * Anomalie dentro una serie (≥ 4 salti): altezza lontana dalla mediana in modo robusto. Segna j.seriesOutlier; non esclude nulla.
  */
 export function flagSeries(jumps) {

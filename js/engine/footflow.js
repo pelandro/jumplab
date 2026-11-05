@@ -158,3 +158,17 @@ export function flowEventsRobust(gray, w, h, tc, kp, rough, opts = {}) {
   if (b.val != null && b.range <= 0.03) { out.td = b.val; out.qTd = base.qTd || { n: 1, cor: NaN, spread: 0 }; }
   return out;
 }
+
+/**
+ * Completa gli eventi mancanti di `r` con quelli di `r2` (stessa misura, altri landmark di partenza). `r.repeat` può essere null (passo > 10,5 ms:
+ * nessun sottocampionamento) o avere un solo evento: il risultato ha sempre `repeat` nullo oppure con entrambe le chiavi.
+ */
+export function mergeFlowFallback(r, r2, tag = 'base') {
+  const out = { ...r, seed: { ...(r.seed || {}) } };
+  for (const [ev, q] of [['to', 'qTo'], ['td', 'qTd']]) {
+    if (out[ev] != null || r2[ev] == null) continue;
+    out[ev] = r2[ev]; out[q] = r2[q]; out.seed[ev] = tag;
+    if (r2.repeat && r2.repeat[ev]) out.repeat = { to: out.repeat?.to ?? r2.repeat.to, td: out.repeat?.td ?? r2.repeat.td, [ev]: r2.repeat[ev] };
+  }
+  return out;
+}

@@ -33,7 +33,7 @@ export const review = {
       return;
     }
 
-    let selIdx = 0, player = null, chart = null;
+    let selIdx = Math.max(0, session.jumps.findIndex((x) => !x.excluded)), player = null, chart = null; // si parte dal primo salto non escluso (i falsi voli sono esclusi in automatico)
     const jumps = () => session.jumps;
     const cur = () => jumps()[selIdx];
     const resOf = (j) => session.results[j.win];
@@ -194,7 +194,7 @@ export const review = {
             h('div', { class: 'num', style: { fontSize: '22px', fontWeight: 800, marginTop: '8px' } }, fmt.ms(j.T), h('small', { class: 'muted', style: { fontSize: '13px' } }, ' ms'))),
         ),
         h('div', { class: 'row', style: { marginTop: '14px', gap: '8px', flexWrap: 'wrap' } },
-          h('button', { class: 'btn sm ghost', onclick: () => { j.excluded = !j.excluded; refresh(); } }, ic(j.excluded ? 'plus' : 'close'), j.excluded ? 'Includi nel risultato' : 'Escludi salto'),
+          h('button', { class: 'btn sm ghost', onclick: () => { j.excluded = !j.excluded; j.userSet = true; j.autoExcluded = false; refresh(); } }, ic(j.excluded ? 'plus' : 'close'), j.excluded ? 'Includi nel risultato' : 'Escludi salto'),
           Number.isFinite(j.bestCm) ? h('button', { class: 'btn sm ghost', onclick: () => { const to = integ ? 'flight' : 'integrated'; store.s.settings.headline = to; store.save(); for (const x of session.jumps) { x.headline = to; finalizeJump(x); } refresh(); } }, ic('info'), integ ? 'Mostra il tempo di volo' : 'Mostra la stima integrata') : null,
           jumps().length > 1 ? h('button', { class: 'btn sm ghost', onclick: () => removeJump() }, ic('trash'), 'Elimina') : null));
       // metriche
@@ -209,7 +209,7 @@ export const review = {
       add('Tempo al decollo', fmt.ms(j.timeToTakeoff), 'ms', Number.isFinite(j.timeToTakeoff) && TEST_TYPES[session.params.testType]?.needsDip);
       add('Altezza dal tempo di volo', fmt.num(L(j.heightCm).v, 1), L(0).u, !uncal(j) && j.hUseSource === 'integrata');
       add('Baricentro all\'atterraggio più basso dello stacco', Number.isFinite(j.landDeltaCm) ? `${fmt.num(L(j.landDeltaCm).v, 1)} ± ${fmt.num(L(j.landDeltaUncCm).v, 1)}` : '—', L(0).u, Number.isFinite(j.landDeltaCm) && !uncal(j));
-      add('Δ: traiettoria · posizione statica', Number.isFinite(j.landDeltaMeasCm) ? `${fmt.num(L(j.landDeltaMeasCm).v, 1)} · ${Number.isFinite(j.landDeltaStaticCm) ? fmt.num(L(j.landDeltaStaticCm).v, 1) : '—'}` : '—', L(0).u, Number.isFinite(j.landDeltaMeasCm) && !uncal(j));
+      add('Δ dalla traiettoria del baricentro', Number.isFinite(j.landDeltaMeasCm) ? fmt.num(L(j.landDeltaMeasCm).v, 1) : '—', L(0).u, Number.isFinite(j.landDeltaMeasCm) && !uncal(j));
       add('Velocità di stacco (stima integrata)', Number.isFinite(j.bestV0) ? `${fmt.num(j.bestV0, 2)} ± ${fmt.num(j.bestV0Unc, 2)}` : '—', 'm/s', Number.isFinite(j.bestV0) && !uncal(j));
       add('Velocità di stacco (da tempo di volo)', fmt.num(j.v0, 2), 'm/s');
       add('Velocità di stacco (dal culmine del baricentro)', `${fmt.num(j.apexV0, 2)} ± ${fmt.num(j.apexV0Unc, 2)}`, 'm/s', Number.isFinite(j.apexV0) && !uncal(j));
@@ -245,7 +245,7 @@ export const review = {
       if (!j.issues.length) issuesBox.append(h('div', { class: 'issue info', html: icon('check') }, h('div', {}, 'Nessuna anomalia: tempi, traiettoria e visibilità dei piedi sono coerenti.')));
       // banner calibrazione
       bannerBox.replaceChildren();
-      const hint = jumps().find((x) => x.timeScaleHint)?.timeScaleHint;
+      const hint = jumps().find((x) => x.timeScaleHint && !x.excluded)?.timeScaleHint; // un falso volo escluso non deve proporre di ricalibrare il video
       if (hint) bannerBox.append(h('div', { class: 'issue bad', style: { marginBottom: '12px', alignItems: 'center' } }, ic('alert'),
         h('div', { class: 'grow' }, `Il video sembra rallentato ${hint}× (la gravità misurata è troppo bassa). Il risultato non è affidabile finché non imposti la calibrazione.`),
         h('button', { class: 'btn sm primary', onclick: () => recalibrate({ mode: 'scale', value: hint }) }, `Applica ${hint}×`)));
@@ -328,7 +328,7 @@ export const review = {
         ...[['auto', 'Automatica (timestamp del file)'], ['scale:2', 'Video rallentato 2×'], ['scale:4', 'Video rallentato 4×'], ['scale:8', 'Video rallentato 8×'],
           ['fps:60', 'Frame a passo fisso · 60 fps reali'], ['fps:120', 'Frame a passo fisso · 120 fps reali'], ['fps:240', 'Frame a passo fisso · 240 fps reali']]
           .map(([v, l]) => h('option', { value: v, selected: v === calVal }, l)));
-      const tsel = h('select', { class: 'input', onchange: (e) => { S.testType = e.target.value; store.save(); reanalyze(session, { testType: e.target.value }); select(0); drawSettings(); } },
+      const tsel = h('select', { class: 'input', onchange: (e) => { S.testType = e.target.value; store.save(); reanalyze(session, { testType: e.target.value }); select(Math.max(0, session.jumps.findIndex((x) => !x.excluded))); drawSettings(); } },
         ...Object.entries(TEST_TYPES).map(([k, t]) => h('option', { value: k, selected: k === session.params.testType }, t.long)));
       const m = session.meta;
       settingsBox.replaceChildren(h('h3', {}, 'Analisi'),
@@ -420,7 +420,7 @@ export const review = {
     addEventListener('keydown', this._key);
     this._player = player;
     drawQuality();
-    select(0);
+    select(selIdx);
   },
   dispose() { removeEventListener('keydown', this._key); this._player?.dispose(); document.getElementById('app')?.classList.remove('wide'); },
 };

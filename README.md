@@ -57,6 +57,13 @@ Cloudflare Pages o Vercel come sito statico. Apri l'URL HTTPS su iPhone con Safa
 - Ripiego sul bacino quando i piedi non sono rilevati per brevi tratti.
 - Dettagli, misure e limiti in `VALIDAZIONE.md`.
 
+## Novità v4.7.2 (correzione e atterraggio dai pixel)
+
+- **Tolta la misura «statica» di Δ** (introdotta in 4.7.0): sui video reali non era indipendente dalla traiettoria e il suo errore dipendeva dal riferimento scelto (−7…+2 cm, fino a valori fisicamente impossibili). Il «risultato scomodo» riportato in 4.7.0 (due misure di Δ che divergono) era un difetto di quella misura, non dei dati: correzione completa in `VALIDAZIONE.md`. Ora Δ = traiettoria del baricentro + prior di popolazione; sui 4 salti del terzo atleta e sulla simulazione i numeri cambiano di meno di 1,5 cm.
+- **Istanti dai pixel più robusti**: con 240 fps l'app rilegge dal video i fotogrammi nativi attorno al volo (prima: 1 su 2–3) e ripete la misura prendendo la mediana; se con i landmark raffinati manca un istante riprova con quelli di base prima di ripiegare sui landmark (che sovrastimano il volo di 37–110 ms nei salti verificati). Corretto anche un errore che, in quel ripiego, disattivava tutto il passo dei pixel.
+- **Falsi voli** (persona ferma, colpi di tallone, saltelli, passi): segnalati con il motivo ed esclusi in automatico dalla serie solo se c'è almeno un altro volo plausibile; si includono con un tocco. Sui 4 video di prova: 4 salti veri tenuti, 6 falsi esclusi; soglie tarate su un solo atleta.
+- Verifica della scala con statura e massa note (atleta di 181 cm / 76 kg): curvatura/g 0,95–1,17 (media 1,05, dev. st. 8 %), in linea con l'8 % di incertezza assunta. **Nessuna verità da pedana.**
+
 ## Novità v4.7.1 (storico completo)
 
 - **Lo storico mostra tutti i valori dei risultati**, non solo altezza e volo: per ogni salto una scheda con altezze (integrata, tempo di volo, parabola, spostamento, balistica), tempi, RSI, dip, velocità di stacco, forza e potenza, baricentro all'atterraggio, validazione dei metodi con livelli e avvisi, fonte degli istanti. Le sessioni salvate con versioni precedenti mostrano i dati che hanno.
@@ -64,7 +71,7 @@ Cloudflare Pages o Vercel come sito statico. Apri l'URL HTTPS su iPhone con Safa
 
 ## Novità v4.7 (modello integrato)
 
-- **Stima integrata dell'altezza** (equivalente all'impulso-quantità di moto delle pedane): corregge il tempo di volo con il baricentro più basso all'atterraggio, misurato in due modi indipendenti (traiettoria e posizione statica) più una prior dalla letteratura, pesati per precisione (non è una media) e con incertezza maggiore quando le misure divergono. Simulazione con verità nota: errore 0,4–0,9 cm dove il solo volo sovrastima di 3–5 cm. Sui video reali le due misure divergono in 3 salti su 4: dichiarato in `VALIDAZIONE.md`.
+- **Stima integrata dell'altezza** (equivalente all'impulso-quantità di moto delle pedane): corregge il tempo di volo con il baricentro più basso all'atterraggio, misurato dalla traiettoria più una prior dalla letteratura, pesati per precisione (non è una media). Simulazione con verità nota: errore 0,4–1,1 cm dove il solo volo sovrastima di 2–6 cm. (La versione 4.7.0 aggiungeva una seconda misura «statica» di Δ: tolta in 4.7.2, vedi sopra.)
 - Altezza principale = stima integrata, con il tempo di volo sempre accanto (commutabile). RSI, Samozino e velocità media la seguono.
 - Contromovimento e spinta dal baricentro a corpo intero invece che dal bacino.
 - Incertezza propagata con il modello fisico; calibrata con Monte Carlo (copertura a 2σ 95 %).

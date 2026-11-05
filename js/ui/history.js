@@ -117,9 +117,9 @@ function jumpGroups(j, L, s) {
   g.push(['Baricentro all’atterraggio più basso dello stacco', [
     ['Stima finale', val(L, j.landDeltaCm, j.landDeltaUncCm), u],
     ['Dalla traiettoria', val(L, j.landDeltaMeasCm), u],
-    ['Dalla posizione statica', val(L, j.landDeltaStaticCm), u],
-    ['Peso traiettoria · statico', Number.isFinite(j.bestW) ? `${fmt.num(j.bestW * 100, 0)} · ${fmt.num((j.bestWStatic || 0) * 100, 0)}` : null, '%'],
-    ['Tensione tra le due misure', num(j.deltaTension, 1), '×'],
+    ['Dalla posizione statica (versioni 4.7.0–4.7.1)', val(L, j.landDeltaStaticCm), u],
+    ['Peso della misura dalla traiettoria', Number.isFinite(j.bestW) ? `${fmt.num(j.bestW * 100, 0)}${Number.isFinite(j.bestWStatic) && j.bestWStatic > 0 ? ' · statico ' + fmt.num(j.bestWStatic * 100, 0) : ''}` : null, '%'],
+    ['Tensione tra le due misure', Number.isFinite(j.deltaTension) && j.deltaTension > 0 ? num(j.deltaTension, 1) : null, '×'],
   ]]);
   return g.map(([t, rows]) => [t, rows.filter((r) => r[1] != null)]).filter(([, rows]) => rows.length);
 }

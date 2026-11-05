@@ -12,11 +12,11 @@ th{background:#16202a}.ok{color:#c6f24e}.bad{color:#ff7b7b}.warn{color:#ffd166}
 rilevamento e misura, <b>non</b> la qualità del modello di postura su video reali.</p>
 <div id="out">In esecuzione…</div>
 <script type="module">
-import { validateJump, flagSeries } from '../js/engine/validate.js';
+import { validateJump, flagSeries, flagImplausible } from '../js/engine/validate.js';
 import { integrate, PRIOR } from '../js/engine/fusion.js';
 import { analyze, remeasure, apexEstimate, summarizeSeries, heightFromFlight, samozino, sayersPeakPower, rsiOf } from '../js/engine/jumps.js';
 import { detectView, assessRecording } from '../js/engine/quality.js';
-import { flowEvents } from '../js/engine/footflow.js';
+import { flowEvents, mergeFlowFallback } from '../js/engine/footflow.js';
 import { buildScenario, renderTrack, rng } from './sim.js';
 import { makeFlowScene, FLOW } from './flowsim.js';
 
@@ -222,6 +222,41 @@ for (const [lab, up] of [['braccia orizzontali → giù', Math.PI / 2], ['bracci
   { const j = base(); j.staticDeltaM = 0.10; j.apexAsymMs = -(0.01 / (g * 0.6)) * 1000; st(j); const j2 = base(); j2.staticDeltaM = 0.01; j2.apexAsymMs = -(0.01 / (g * 0.6)) * 1000; st(j2); ck('Validazione: misure di Δ che divergono (traiettoria 1 cm, statica 10 cm) → livello della stima integrata abbassato con motivo; concordi → nessun motivo', mid(j, 'integrato').contro.some((t) => /divergono/.test(t)) && !mid(j2, 'integrato').contro.some((t) => /divergono/.test(t)) && mid(j, 'integrato').score < mid(j2, 'integrato').score); }
   { const j = base(); j.geoCm = 58; const v = st(j); ck('Validazione: scala incoerente → «parziale», flag scala, i metodi sul tempo restano', v.status === 'parziale' && v.flags.some((f) => f.code === 'scala') && v.recommended === 'integrato' && mid(j, 'baricentro').level !== 'alta'); }
   { const j = base(); j.apexCm = NaN; j.apexT = NaN; j.geoCm = NaN; const v = st(j); ck('Validazione: baricentro non adattabile → solo volo, dichiarato', v.status === 'parziale' && v.flags.some((f) => f.code === 'solo_volo') && mid(j, 'parabola').nonDisponibile); }
+  // falsi voli (persona ferma): criteri, esclusione automatica solo con un altro volo plausibile, rispetto delle scelte dell'utente
+  {
+    const real = () => { const j = validateJump(base()); j.gRatio = 0.9; return j; };
+    const fake1 = () => { const j = validateJump(base()); j.gRatio = 0.01; j.confidence = 'bassa'; j.score = 0.45; return j; }; // bacino fermo, affidabilità bassa
+    const fake2 = () => { const j = validateJump(base()); j.apexCm = NaN; j.gRatio = 0.9; j.issues.push({ level: 'warn', code: 'footrise', text: '' }); return j; }; // senza parabola e con piedi incoerenti
+    const fake3 = () => { const j = validateJump(base()); j.score = 0.15; j.gRatio = 0.9; return j; };
+    const a = [fake1(), real(), fake2(), fake3()]; flagImplausible(a);
+    ck('Falsi voli: bacino fermo + affidabilità bassa, senza parabola + piedi incoerenti, affidabilità < 30 % → esclusi con motivo; il salto vero resta', a[0].excluded && a[2].excluded && a[3].excluded && !a[1].excluded && [0, 2, 3].every((i) => a[i].issues.some((x) => x.code === 'val_falso')) && !a[1].issues.some((x) => x.code === 'val_falso'));
+    const b = [fake1()]; flagImplausible(b); ck('Falsi voli: un solo volo (anche sospetto) non viene mai escluso, ma resta segnalato', !b[0].excluded && b[0].issues.some((x) => x.code === 'val_falso'));
+    const c = [fake1(), real()]; c[0].userSet = true; c[0].excluded = false; flagImplausible(c); ck('Falsi voli: la scelta dell\'utente (includi) è rispettata', !c[0].excluded);
+    const d = [fake1(), real()]; d[0].manual = true; flagImplausible(d); ck('Falsi voli: un salto con istanti corretti a mano non viene escluso in automatico', !d[0].excluded);
+    const e = [fake1(), real()]; flagImplausible(e); flagImplausible(e); ck('Falsi voli: idempotente (nessun avviso duplicato)', e[0].issues.filter((x) => x.code === 'val_falso').length === 1);
+    const f = [real(), real()]; flagImplausible(f); ck('Falsi voli: due salti veri → nessuno escluso né segnalato', f.every((j) => !j.excluded && !j.issues.some((x) => x.code === 'val_falso')));
+    const sj = (j) => { j.testType = 'cmj'; return j; };
+    const heel = () => { const j = sj(validateJump({ ...base(), T: 0.141, heightCm: 2.4 })); j.gRatio = 0.9; j.issues.push({ level: 'info', code: 'nodip', text: '' }); return j; }; // colpo di tallone: 141 ms, senza contromovimento
+    const hop = () => { const j = sj(validateJump({ ...base(), T: 0.334, heightCm: 13.7 })); j.gRatio = 0.9; j.confidence = 'media'; return j; }; // saltello a 334 ms con affidabilità media
+    const main = () => sj(real());
+    const h1 = [heel(), hop(), main()]; flagImplausible(h1);
+    ck('Falsi voli (test a salto singolo): colpo di tallone (141 ms, senza contromovimento) e saltello (334 ms, affidabilità media) accanto a un CMJ di 600 ms → esclusi; il CMJ resta', h1[0].excluded && h1[1].excluded && !h1[2].excluded && h1[0].issues.some((x) => x.code === 'val_falso'));
+    const h2 = [sj(validateJump({ ...base(), T: 0.45 })), main()]; h2[0].gRatio = 0.9; flagImplausible(h2);
+    ck('Falsi voli: due CMJ veri con tempi di volo 450 e 600 ms (≥ 60 %) → nessuno escluso', !h2[0].excluded && !h2[1].excluded);
+    const h3 = [heel(), main()]; h3.forEach((j) => { j.testType = 'free'; }); flagImplausible(h3);
+    ck('Falsi voli: nei test liberi/serie (non a salto singolo) i voli brevi non si escludono per durata', !h3[0].excluded);
+    const h4 = [heel()]; flagImplausible(h4); ck('Falsi voli: un colpo di tallone da solo (nessun altro volo) non viene escluso', !h4[0].excluded);
+    const sl = validateJump(base()); sl.gRatio = 0.33; sl.timeScaleHint = 4; sl.score = 0.45; sl.confidence = 'bassa'; const g2 = [sl, real()]; flagImplausible(g2); ck('Falsi voli: video rallentato non calibrato (indizio di scala) con affidabilità ≥ 30 % → non escluso', !g2[0].excluded);
+  }
+  // fusione degli eventi dai pixel con i landmark di base: ripetibilità assente (passo > 10,5 ms) o solo di un evento non deve far fallire (bug trovato sul video reale)
+  {
+    const mk = (to, td, rep) => ({ to, td, qTo: to != null ? { n: 1, cor: 0.9, spread: 0 } : null, qTd: td != null ? { n: 1, cor: 0.9, spread: 0 } : null, repeat: rep });
+    const m1 = mergeFlowFallback(mk(null, 1.5, null), mk(1.0, 1.52, null)); ck('Fusione eventi: manca lo stacco, ripetibilità assente → recuperato dai landmark di base, l\'atterraggio resta quello originale, nessun errore', m1.to === 1.0 && m1.td === 1.5 && m1.seed.to === 'base' && !m1.seed.td && (m1.repeat?.to?.range ?? null) === null && (m1.repeat?.td?.range ?? null) === null);
+    const rep = { to: { val: 1.0, n: 9, range: 0.004 }, td: { val: null, n: 2, range: NaN } };
+    const m2 = mergeFlowFallback(mk(1.0, null, { to: { val: 0.99, n: 9, range: 0.002 }, td: { val: null, n: 1, range: NaN } }), mk(null, 2.0, { to: { val: null, n: 0, range: NaN }, td: { val: 2.0, n: 8, range: 0.006 } }));
+    ck('Fusione eventi: con ripetibilità presente si porta quella dell\'evento recuperato e si tiene l\'altra', m2.td === 2.0 && m2.to === 1.0 && m2.repeat.td.range === 0.006 && m2.repeat.to.range === 0.002 && m2.seed.td === 'base');
+    const m3 = mergeFlowFallback(mk(1.0, 2.0, null), mk(0.5, 2.5, null)); ck('Fusione eventi: se entrambi gli eventi ci sono, i landmark di base non cambiano nulla', m3.to === 1.0 && m3.td === 2.0 && !m3.seed.to && !m3.seed.td);
+  }
   { const j = base(); j.flow = null; const v = st(j); ck('Validazione: istanti dai landmark a 240 fps → volo e parabola non «alta»', mid(j, 'volo').level !== 'alta' && mid(j, 'parabola').level !== 'alta'); }
   { const j = base(); j.flow = { pixelBoth: false, src: { to: 'pixel', td: 'landmark' } }; st(j); ck('Validazione: stacco dai pixel, atterraggio dai landmark → il volo perde, la parabola no', mid(j, 'volo').score < mid(j, 'parabola').score); }
   { const j = base(); j.manual = true; j.flow = null; st(j); ck('Validazione: istanti manuali → motivo «scelti a mano», nessuna penalità di fonte', mid(j, 'volo').pro.some((t) => /a mano/.test(t)) && mid(j, 'volo').level === 'alta'); }
@@ -327,7 +362,6 @@ for (const [lab, up] of [['braccia orizzontali → giù', Math.PI / 2], ['bracci
     }
     const mean = (a) => a.reduce((x, y) => x + y, 0) / a.length;
     chk(`Pipeline (Δ vero ${(D * 100).toFixed(0)} cm, ${n} salti): errore della stima integrata sull'altezza balistica`, mean(eIn), 0, 1.5, 'cm');
-    { const sd2 = []; for (const seed of [1, 2, 3]) { const scn = buildScenario('cmj', { T: 0.55, landDrop: D }); const r2 = analyze(renderTrack(scn, { fps: 240, seed: seed * 5, noise: 0.0025 }), { testType: 'cmj', heightCm: 175 }); const j2 = r2.jumps[0]; if (j2 && Number.isFinite(j2.staticDeltaM)) sd2.push(j2.staticDeltaM * 100); } if (sd2.length) chk(`Pipeline (Δ vero ${(D * 100).toFixed(0)} cm): Δ statico (baricentro sopra il piede)`, mean(sd2), D * 100, 1.5, 'cm'); }
     if (D >= 0.05) ck(`Pipeline (Δ ${(D * 100).toFixed(0)} cm): il solo volo sovrastima di ${mean(eFT).toFixed(1)} cm, l'integrata no`, mean(eFT) > 2 && Math.abs(mean(eIn)) < 1.5);
   }
   // valori derivati: RSI, Samozino e velocità media seguono l'altezza scelta

@@ -556,23 +556,11 @@ export function describeJump(sig, cache, to, td, ctx = {}) {
     }
   }
 
-  // Δ STATICO: altezza del baricentro sopra il piede più basso allo stacco meno all'atterraggio (mediana su ±40 ms). Con i piedi a terra in entrambi
-  // gli istanti è direttamente il baricentro più basso all'atterraggio: seconda tecnica, indipendente dall'asimmetria del culmine (la prima).
-  let staticDeltaM = NaN;
-  if (apexInfo && T < 1.5) {
-    const nS = Math.max(1, Math.round(0.04 / dt)), a = Math.max(2, i0 - nS - 2), b = Math.min(sig.n - 3, i1 + nS + 2);
-    const off = apexInfo.proxy === 'corpo intero' ? limbOffset(sig, a, b) : null;
-    const base = apexInfo.proxy === 'bacino' ? cache.hip?.sm : trunk.sm;
-    if (base && (apexInfo.proxy !== 'corpo intero' || off)) {
-      const Hat = (c) => {
-        const v = [];
-        for (let k = -nS; k <= nS; k++) { const x = base[c + k] - (off ? off[c + k] : 0) + sig.footLow[c + k]; if (isNum(x)) v.push(x); }
-        return v.length >= Math.max(2, nS) ? median(v) : NaN;
-      };
-      const d = (Hat(i0) - Hat(i1)) / fhPerM;
-      if (isNum(d) && Math.abs(d) < 0.4) staticDeltaM = d;
-    }
-  }
+  // NOTA (v4.7.2): una misura "statica" di Δ (altezza del baricentro sopra il piede allo stacco meno all'atterraggio) NON è usata. Provata su 15 analisi di
+  // 3 atleti: (a) senza riferimento al suolo coincide algebricamente con l'asimmetria del culmine (Δ = −b·T per una parabola), quindi non è indipendente;
+  // (b) riferita al landmark del piede ha un bias di −7 ± 4,5 cm (a terra il landmark risulta già 8–14 cm sopra il suolo allo stacco e 4–8 cm al contatto);
+  // (c) riferita al suolo stimato dai landmark dà −2 ± 7 cm, perché lo "spostamento del suolo" (fino a 13 cm) è la postura del piede e non un movimento reale;
+  // (d) riferita al punto del piede tracciato dai pixel dà +2 ± 8 cm (zone diverse del piede allo stacco e all'atterraggio). Il canale resta in fusion.js.
 
   // Postura: il tempo di volo vale solo se bacino-piedi sono uguali allo stacco e all'atterraggio. Se si atterra più
   // flessi (bacino più basso) il volo si allunga e l'altezza è sovrastimata (letteratura: 2–11 %, ~2,5 cm).
@@ -617,9 +605,8 @@ export function describeJump(sig, cache, to, td, ctx = {}) {
   const ph = needsPh ? phaseMetrics(sig, phSrc, i0, to) : null;
   const j = {
     to, td, T, heightCm, v0, flightMs: T * 1000, uncT, uncCm, postureDropCm, heightCorrCm, apexCm, apexUncCm, apexAsymMs, apexProxy, apexSpreadCm, apexV0, apexV0Unc, apexT, apexSigTa, apexRmseRel, geoCm, geoUncCm,
-    dt, fps: 1 / dt, fitFailed: !!ctx.fitFailed, scaleAssumed: !ctx.heightCm,
+    dt, fps: 1 / dt, fitFailed: !!ctx.fitFailed, scaleAssumed: !ctx.heightCm, testType: ctx.testType || null,
     riseFromStartCm: NaN, riseFromStartUncCm: NaN, takeoffRiseCm: NaN, ballisticCm: NaN,
-    staticDeltaM,
     bestCm: NaN, bestUncCm: NaN, bestV0: NaN, bestV0Unc: NaN, landDeltaCm: NaN, landDeltaUncCm: NaN, bestW: NaN, hUseCm: heightCm, hUseSource: 'volo',
     massKg: ctx.massKg || 0, hpoM: NaN, headline: ctx.headline === 'flight' ? 'flight' : 'integrated',
     contact: ctx.contact ?? null, contactSource: ctx.contactSource ?? null,

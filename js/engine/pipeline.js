@@ -8,8 +8,8 @@ import { openVideo } from './video.js';
 import { pose, PoseEngine } from './pose.js';
 import { analyze, remeasure, finalizeJump } from './jumps.js';
 import { assessRecording } from './quality.js';
-import { flagSeries } from './validate.js';
-import { flowEventsRobust } from './footflow.js';
+import { flagSeries, flagImplausible } from './validate.js';
+import { flowEventsRobust, mergeFlowFallback } from './footflow.js';
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
 const FULL = { x: 0, y: 0, w: 1, h: 1 };
@@ -199,11 +199,12 @@ export async function runAnalysis(file, opts, cb = {}) {
     const cpx = crop.w * W, cpy = crop.h * H;
     const s = Math.min(1, 560 / Math.max(cpx, cpy));
     dcv.width = Math.max(32, Math.round(cpx * s)); dcv.height = Math.max(32, Math.round(cpy * s));
-    const win = { t0: w.t0, t1: w.t1, crop, frames: [], cw: dcv.width, ch: dcv.height };
+    const win = { t0: w.t0, t1: w.t1, crop, frames: [], cw: dcv.width, ch: dcv.height, dstep: 1 };
     let miss = 0;
     // Con 240 fps una finestra ha ~800 fotogrammi: oltre ~500 si analizza un fotogramma ogni `dstep` (240 → 120 fps effettivi). Misurato su video
     // reale: dimezzare i fps (120 → 60) sposta il volo di 1–2 ms, quindi il costo di precisione è trascurabile e il tempo di calcolo si dimezza.
     const dstep = Math.max(1, Math.ceil(((w.t1 - w.t0) * meta.fps) / 500));
+    win.dstep = dstep;
     if (dstep > 1) log(`Finestra di ${Math.round((w.t1 - w.t0) * meta.fps)} fotogrammi: analizzo 1 ogni ${dstep} (${(meta.fps / dstep).toFixed(0)} fps effettivi)`);
     meta.denseStep = Math.max(meta.denseStep || 1, dstep);
     // più persone: si segue l'atleta per continuità di posizione (coordinate del ritaglio) invece di prendere la posa più grande
@@ -238,23 +239,24 @@ export async function runAnalysis(file, opts, cb = {}) {
     }
     session.windows.push(win);
   }
-  src.dispose();
   stage('analyze', 0.8, 'Calcolo stacchi e atterraggi…');
-  const params = { cal: opts.cal, testType: opts.testType, heightCm: opts.heightCm, massKg: opts.massKg, boxCm: opts.boxCm, leg: opts.leg, headline: opts.headline };
-  reanalyze(session, params);
-  if (opts.refine !== false && session.jumps.some((j) => !j.manual)) {
-    try { await refineEvents(session, opts, { stage, onPreview: cb.onPreview, log }, aborted); }
-    catch (e) {
-      if (e.name === 'AbortError') throw e;
-      log('Rifinitura saltata: ' + (e.message || e));
-      // senza rifinitura il risultato resta valido ma con ~1–2 cm di incertezza in più (misurato tra Full e Heavy): lo si dice
-      session.quality?.items.push({ level: 'info', code: 'refine', text: `La rifinitura con il modello Heavy non è stata eseguita (${String(e.message || e).slice(0, 80)}): il risultato può differire di 1–2 cm da quello di un dispositivo che la esegue.` });
+  try {
+    const params = { cal: opts.cal, testType: opts.testType, heightCm: opts.heightCm, massKg: opts.massKg, boxCm: opts.boxCm, leg: opts.leg, headline: opts.headline };
+    reanalyze(session, params);
+    if (opts.refine !== false && session.jumps.some((j) => !j.manual)) {
+      try { await refineEvents(session, opts, { stage, onPreview: cb.onPreview, log }, aborted); }
+      catch (e) {
+        if (e.name === 'AbortError') throw e;
+        log('Rifinitura saltata: ' + (e.message || e));
+        // senza rifinitura il risultato resta valido ma con ~1–2 cm di incertezza in più (misurato tra Full e Heavy): lo si dice
+        session.quality?.items.push({ level: 'info', code: 'refine', text: `La rifinitura con il modello Heavy non è stata eseguita (${String(e.message || e).slice(0, 80)}): il risultato può differire di 1–2 cm da quello di un dispositivo che la esegue.` });
+      }
     }
-  }
-  if (opts.refine !== false && session.jumps.some((j) => !j.manual)) {
-    try { await flowRefine(session, { stage }); }
-    catch (e) { if (e.name === 'AbortError') throw e; session.flowError = String(e.stack || e.message || e).slice(0, 400); log('Eventi dai pixel saltati: ' + (e.message || e)); }
-  }
+    if (opts.refine !== false && session.jumps.some((j) => !j.manual)) {
+      try { await flowRefine(session, { stage, src, signal }); }
+      catch (e) { if (e.name === 'AbortError') throw e; session.flowError = String(e.stack || e.message || e).slice(0, 400); log('Eventi dai pixel saltati: ' + (e.message || e)); }
+    }
+  } finally { src.dispose(); }
   stage('done', 1, 'Completato');
   return session;
 }
@@ -303,6 +305,7 @@ async function refineEvents(session, opts, cb, aborted) {
           const crop = win.crop;
           const view = new Float32Array(kp);
           for (let q = 0; q < 33; q++) { kp[q * 3] = crop.x + kp[q * 3] * crop.w; kp[q * 3 + 1] = crop.y + kp[q * 3 + 1] * crop.h; }
+          f.kpBase ??= f.kp; // landmark del modello di base: servono come seconda partenza del tracciamento dei pixel se quelli rifiniti falliscono
           f.kp = kp; changed++;
           if (done % 2 === 0) cb.onPreview?.(cv, view, { crop, t: f.t });
         }
@@ -336,17 +339,65 @@ function timeAt(tc, pos) {
 }
 
 /**
+ * Fotogrammi NATIVI (passo 1) tra due tempi del file, ritagliati come la finestra (stessa scala) e in grigi. Con 240 fps la finestra principale è
+ * campionata 1 su 2–3 (≤ ~500 fotogrammi): un singolo tracciamento a passo 12,5 ms oscilla di ±3–17 ms sugli istanti (misurato su video reale: stesso salto,
+ * 529 ms a passo 4,2 ms contro 544 ms nell'app), mentre a passo nativo `flowEventsRobust` può ripetere la misura su sottocampionamenti e prendere la mediana.
+ * Servono pochi fotogrammi (≈ 1,1 s attorno al volo) e nessuna posa: i landmark servono solo come punto di partenza della zona da seguire.
+ */
+async function denseGray(src, win, tFrom, tTo, cal, sc, signal) {
+  const cv = document.createElement('canvas'); cv.width = win.cw; cv.height = win.ch;
+  const ctx = cv.getContext('2d', { willReadFrequently: true });
+  ctx.imageSmoothingQuality = 'high';
+  const out = { gray: [], t: [], tc: [] };
+  for await (const { idx, t, frame } of src.frames({ from: tFrom, to: tTo, step: 1, signal })) {
+    src.drawCrop(frame, ctx, win.crop, cv.width, cv.height);
+    const px = ctx.getImageData(0, 0, cv.width, cv.height).data;
+    const g = new Uint8Array(cv.width * cv.height);
+    for (let q = 0, o = 0; q < g.length; q++, o += 4) g[q] = (px[o] * 299 + px[o + 1] * 587 + px[o + 2] * 114) / 1000;
+    out.gray.push(g); out.t.push(t); out.tc.push(calibratedTime({ t, idx }, cal) / sc);
+  }
+  return out;
+}
+
+/**
+ * Landmark (coordinate del ritaglio) ai tempi `ts` del file, interpolati linearmente tra i due fotogrammi campionati che li racchiudono (o il più vicino se
+ * uno dei due non ha il corpo). `which` = 'kp' (rifiniti) oppure 'kpBase' (modello di base, se esistono).
+ */
+function seedKps(frames, crop, ts, which) {
+  const cache = new Map();
+  const kpOf = (i) => {
+    if (!cache.has(i)) { const f = frames[i], k = (which === 'kpBase' && f.kpBase) || f.kp; cache.set(i, k ? remapToCrop(k, crop) : null); }
+    return cache.get(i);
+  };
+  let lo = 0;
+  return ts.map((t) => {
+    while (lo < frames.length - 2 && frames[lo + 1].t <= t) lo++;
+    const hi = Math.min(frames.length - 1, lo + 1);
+    const a = kpOf(lo), b = kpOf(hi);
+    if (a && b && hi !== lo && frames[hi].t > frames[lo].t) {
+      const u = Math.max(0, Math.min(1, (t - frames[lo].t) / (frames[hi].t - frames[lo].t)));
+      const o = new Float32Array(a.length);
+      for (let q = 0; q < a.length; q++) o[q] = q % 3 === 2 ? Math.min(a[q], b[q]) : a[q] + (b[q] - a[q]) * u;
+      return o;
+    }
+    return a || b;
+  });
+}
+
+/**
  * Stacco e atterraggio dai PIXEL del piede (footflow.js) sui ritagli già salvati. Si usano al posto dei landmark quando il tracciamento è
  * affidabile e non si discosta di più di 120 ms: verificato su video reale a 120 fps, dove i landmark erano in ritardo di 25 ms allo
  * stacco e 46 ms al primo contatto (o in anticipo di 87 ms con Heavy + specchio).
  */
-async function flowRefine(session, cb) {
+export async function flowRefine(session, cb) {
   const cv = document.createElement('canvas'), ctx = cv.getContext('2d', { willReadFrequently: true });
   session.flowInfo = session.windows.map(() => []);
   const leg = session.params?.leg;
   const jumps = session.jumps.filter((j) => !j.manual);
+  let nDense = 0;
   cb.stage('refine', 0.955, 'Tracciamento dei pixel del piede…');
-  for (const j of jumps) {
+  for (const [jk, j] of jumps.entries()) {
+    cb.stage('refine', 0.955 + 0.04 * (jk / jumps.length), `Tracciamento dei pixel del piede · salto ${jk + 1}/${jumps.length}`);
     const win = session.windows[j.win];
     // Video rallentato non ancora calibrato: i secondi del file sono ×N più lenti di quelli reali e le finestre di tracciamento (in secondi)
     // risulterebbero troppo corte. Si lavora nel tempo fisico stimato (suggerimento di gravità); gli eventi si salvano come posizione di
@@ -358,21 +409,43 @@ async function flowRefine(session, cb) {
     for (let i = 0; i < tcAll.length; i++) if (tcAll[i] <= jTd + 0.26) iB = i;
     if (iA < 0 || iB - iA < 12) { (session.flowSkip ||= []).push({ iA, iB, n: tcAll.length, to: j.to, td: j.td, tc0: tcAll[0], tc1: tcAll[tcAll.length - 1] }); continue; }
     cv.width = win.cw; cv.height = win.ch;
-    const gray = [], kp = [], tc = [];
-    for (let i = iA; i <= iB; i++) {
-      const f = win.frames[i];
-      const bmp = await createImageBitmap(f.blob);
-      ctx.drawImage(bmp, 0, 0, cv.width, cv.height); bmp.close?.();
-      const px = ctx.getImageData(0, 0, cv.width, cv.height).data;
-      const g = new Uint8Array(cv.width * cv.height);
-      for (let q = 0, o = 0; q < g.length; q++, o += 4) g[q] = (px[o] * 299 + px[o + 1] * 587 + px[o + 2] * 114) / 1000;
-      gray.push(g); tc.push(f.tc / sc); kp.push(f.kp ? remapToCrop(f.kp, win.crop) : null);
+    let gray = [], kp = [], kpB = [], tc = [], dense = false;
+    // Passo nativo: se la finestra principale è campionata più rada del video (240 fps → 1 su 2–3), i fotogrammi attorno al volo si rileggono tutti dal video.
+    if (cb.src?.kind === 'webcodecs' && win.dstep > 1 && nDense < 8) {
+      try {
+        nDense++;
+        const d = await denseGray(cb.src, win, win.frames[Math.max(0, iA - 1)].t, win.frames[Math.min(win.frames.length - 1, iB + 1)].t, session.cal || { mode: 'auto' }, sc, cb.signal);
+        if (d.gray.length >= 2 * (iB - iA)) {
+          gray = d.gray; tc = d.tc; dense = true;
+          kp = seedKps(win.frames, win.crop, d.t, 'kp'); kpB = seedKps(win.frames, win.crop, d.t, 'kpBase');
+        }
+      } catch (e) { if (e.name === 'AbortError') throw e; (session.denseError ||= []).push(String(e.message || e).slice(0, 120)); }
     }
-    const r = flowEventsRobust(gray, cv.width, cv.height, tc, kp, { to: jTo, td: jTd }, { leg: leg === 'left' || leg === 'right' ? leg : undefined });
+    if (!dense) {
+      for (let i = iA; i <= iB; i++) {
+        const f = win.frames[i];
+        const bmp = await createImageBitmap(f.blob);
+        ctx.drawImage(bmp, 0, 0, cv.width, cv.height); bmp.close?.();
+        const px = ctx.getImageData(0, 0, cv.width, cv.height).data;
+        const g = new Uint8Array(cv.width * cv.height);
+        for (let q = 0, o = 0; q < g.length; q++, o += 4) g[q] = (px[o] * 299 + px[o + 1] * 587 + px[o + 2] * 114) / 1000;
+        gray.push(g); tc.push(f.tc / sc); kp.push(f.kp ? remapToCrop(f.kp, win.crop) : null);
+        kpB.push(f.kpBase || f.kp ? remapToCrop(f.kpBase || f.kp, win.crop) : null);
+      }
+    }
+    const dts = []; for (let i = 1; i < tc.length; i++) if (tc[i] > tc[i - 1]) dts.push(tc[i] - tc[i - 1]);
+    const dtPx = dts.length ? dts.sort((x, y) => x - y)[dts.length >> 1] : null;
+    const fopts = { leg: leg === 'left' || leg === 'right' ? leg : undefined };
+    let r = flowEventsRobust(gray, cv.width, cv.height, tc, kp, { to: jTo, td: jTd }, fopts);
+    // Se un evento manca con i landmark rifiniti (Heavy + specchio) si riprova con quelli di base (Full): su 8 prove reali con due modelli, in 1 caso Heavy
+    // posizionava male la punta del piede (rampa a 88 px/s contro ~600) e l'app ricadeva sui landmark, che sbagliano di +40…+110 ms; con Full l'evento si trovava.
+    if ((r.to == null || r.td == null) && win.frames.slice(iA, iB + 1).some((f) => f.kpBase && f.kp && f.kpBase !== f.kp)) {
+      r = mergeFlowFallback(r, flowEventsRobust(gray, cv.width, cv.height, tc, kpB, { to: jTo, td: jTd }, fopts), 'base');
+    }
     session.flowInfo[j.win].push({
       leg: leg || 'both', posToLm: posOf(tcAll, jTo), posTdLm: posOf(tcAll, jTd),
       posTo: r.to != null ? posOf(tcAll, r.to) : null, posTd: r.td != null ? posOf(tcAll, r.td) : null, qTo: r.qTo, qTd: r.qTd,
-      repTo: r.repeat ? r.repeat.to.range : null, repTd: r.repeat ? r.repeat.td.range : null, scale: sc,
+      repTo: r.repeat?.to?.range ?? null, repTd: r.repeat?.td?.range ?? null, scale: sc, dense, dtPx,
       dbg: { n: gray.length, w: cv.width, h: cv.height, d: r.detail, kp0: kp[0] ? Array.from(kp[0].slice(93, 99)).map((v) => +v.toFixed(3)) : null },
     });
     await tick();
@@ -427,7 +500,8 @@ function applyFlowInfo(session) {
         // Stima euristica, non validata contro una pedana.
         // + metà dell'intervallo tra i sottocampionamenti (ripetibilità misurata dentro l'app: ~2 ms in frontale, 10–16 ms allo stacco in laterale)
         const rp = (x) => (Number.isFinite(x) ? (x * ((j.timeScaleHint && (session.cal?.mode || 'auto') === 'auto') ? j.timeScaleHint : 1)) / 2 : 0); // x è in secondi fisici
-        const ev = (q, r) => Math.hypot(0.25 * dtc, 0.005, sp(q), rp(r));
+        const dtp = Number.isFinite(info.dtPx) && (info.scale || 1) === 1 ? info.dtPx : dtc; // passo dei fotogrammi usati per i pixel (nativo se riletti dal video)
+        const ev = (q, r) => Math.hypot(0.25 * dtp, 0.005, sp(q), rp(r));
         j.uncT = Math.hypot(ev(info.qTo, info.repTo), ev(info.qTd, info.repTd));
       } else {
         j.uncT = Math.hypot(Math.SQRT2 * 0.35 * dtc, 0.5 * (to - toLm), 0.5 * (td - tdLm), sp(info.qTo), sp(info.qTd));
@@ -450,6 +524,7 @@ function applyFlowInfo(session) {
 export function finalizeValidation(session) {
   session.jumps = session.results.flatMap((r) => r.jumps);
   for (const j of session.jumps) finalizeJump(j);
+  flagImplausible(session.jumps);
   flagSeries(session.jumps);
 }
 
