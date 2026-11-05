@@ -422,3 +422,26 @@ I tre metodi dello stesso salto differiscono fino a 5–6 cm (0181: 6 cm; 0207: 
 
 **Modelli di postura (valutazione, non sostituzione)**: l'app resta su MediaPipe BlazePose (Heavy con immagine specchiata attorno agli eventi, Full altrove) perché gira nel browser senza caricare i video. RTMPose/RTMW (ONNX Runtime Web, anche con punti di piede) e ViTPose sono alternative serie, ma **non sono state provate**: richiedono rilevatore + modello (decine di MB), integrazione e un confronto sugli stessi video. Gli errori dominanti trovati qui non vengono dal rumore dei punti (ripetibilità del baricentro 0,2–0,5 cm tra modelli) ma da cosa si intende per baricentro e dagli istanti: per questo la prima mossa sono stati pixel del piede e baricentro a corpo intero. Un cambio di modello è utile solo se verificato con lo stesso banco (`apex_exp`) e, meglio, con una pedana.
 
+### Confronto con RTMPose-x e RTMW-x (ONNX Runtime, v4.6)
+Prova richiesta: valutare RTMPose/RTMW/ViTPose al posto di BlazePose. Pesi ufficiali OpenMMLab: **RTMPose-x halpe26** (384×288, 26 punti con tallone e alluce) e **RTMW-x** (cocktail14, 384×288, 133 punti con piedi), eseguiti con `onnxruntime` sugli **stessi ritagli** dell'app (riquadro = intero ritaglio, senza rilevatore; pre-elaborazione verificata sul `pipeline.json` dei modelli: media/dev. standard, 288×384, nessun flip), punti mappati sul formato a 33 landmark e analizzati con il **codice reale dell'app** con gli istanti dai pixel. 3 video (0181, 0207, 0208), 5 analisi. La mappa dei punti è stata controllata contro BlazePose (scarti 0,1–6 cm, nessuno scambio destra/sinistra).
+
+**Eventi dai landmark** (errore rispetto ai pixel del piede, ms, stacco / atterraggio; media dei valori assoluti su 3 video):
+| Modello | passaggi | stacco | atterraggio |
+|---|---|---|---|
+| BlazePose Heavy + specchio | 2 × Heavy | 5 | 5 |
+| BlazePose Full | 1 | 12 | 5 |
+| RTMPose-x halpe26 | 1 | 5 | 4 |
+| RTMW-x | 1 | 3 | 6 |
+(a 120 fps equivalenti: 4/5, 12/6, 6/4, 3/7). Per video, firmato: 0181 Heavy −5/−3, Full +5/0, halpe +9/−5, RTMW +4/−3; 0207 −7/+5, −17/+9, −4/+7, +3/+6; 0208 −4/+7, −15/+5, −2/0, +2/+9.
+
+**Culmine del baricentro a corpo intero** (cm; Heavy / Full / halpe / RTMW): 0181 28,8 / 28,3 / 29,3 / 28,0 · 0207 41,3 / 41,7 / 42,7 / 42,0 · 0208 35,8 / 35,9 / 35,8 / 35,7. **Intervallo tra i 4 modelli** 1,3 · 1,5 · 0,2 cm (tra i soli due BlazePose 0,5 · 0,4 · 0,1). **Residuo balistico** (cm): Heavy 0,18–0,24, Full 0,25–0,30, halpe 0,34–0,40, RTMW 0,23–0,32. In frontale (0181) il bacino di BlazePose dista 3,1 cm dal corpo intero, quello di RTMW 1,3 cm.
+
+**ONNX Runtime Web** (Chromium headless, WASM, 4 thread, isolamento cross-origin; ort-web 1.22): stesso ingresso reale di Python → uscite identiche (differenza massima 3,5·10⁻⁶ per RTMPose-x e 2,3·10⁻⁵ per RTMW-x; 26/26 e 133/133 punti identici). **Latenza 336 ms (RTMPose-x) e 357 ms (RTMW-x) per fotogramma**, caricamento 2–4 s; in Python nativo su CPU 80–86 ms. **Dimensione 200 MB e 229 MB**, contro 5,8 / 9,4 / 30,7 MB di BlazePose Lite / Full / Heavy.
+
+**Lettura e decisione** (3 video, 2 atleti: nessuna verità da pedana):
+- Sugli eventi i modelli RTMPose a passaggio singolo equivalgono a Heavy+specchio (che costa due passaggi) e battono Full allo stacco (3–5 ms contro 12 ms). Le differenze di 1–2 ms tra i migliori sono dentro il rumore di 3 video.
+- Sul culmine i quattro modelli concordano entro 1,5 cm: **il contributo della scelta del modello all'incertezza è ≲ 1,5 cm**, coerente con le incertezze dichiarate (±1,4–2,0 cm). È un'indicazione di robustezza, non di esattezza.
+- **Non si sostituisce BlazePose**: nessun guadagno misurabile oltre il rumore, in cambio di 7–40 volte la dimensione, ~340 ms/fotogramma nel browser desktop (non misurato su iPhone/iPad, dove memoria e prestazioni WASM sono i rischi principali) e un'integrazione top-down. Nota di merito per RTMW-x: bacino più coerente col tronco in frontale.
+- Gli istanti restano comunque affidati ai pixel del piede, indipendenti dal modello: la scelta del modello incide solo sul ripiego e sul baricentro.
+- **Non provati**: ViTPose (host dei pesi non raggiungibile da questo ambiente al momento della prova), RTMPose/RTMW di taglia m/l, versioni quantizzate INT8, WebGPU, iPhone.
+
