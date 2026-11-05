@@ -556,6 +556,24 @@ export function describeJump(sig, cache, to, td, ctx = {}) {
     }
   }
 
+  // Δ STATICO: altezza del baricentro sopra il piede più basso allo stacco meno all'atterraggio (mediana su ±40 ms). Con i piedi a terra in entrambi
+  // gli istanti è direttamente il baricentro più basso all'atterraggio: seconda tecnica, indipendente dall'asimmetria del culmine (la prima).
+  let staticDeltaM = NaN;
+  if (apexInfo && T < 1.5) {
+    const nS = Math.max(1, Math.round(0.04 / dt)), a = Math.max(2, i0 - nS - 2), b = Math.min(sig.n - 3, i1 + nS + 2);
+    const off = apexInfo.proxy === 'corpo intero' ? limbOffset(sig, a, b) : null;
+    const base = apexInfo.proxy === 'bacino' ? cache.hip?.sm : trunk.sm;
+    if (base && (apexInfo.proxy !== 'corpo intero' || off)) {
+      const Hat = (c) => {
+        const v = [];
+        for (let k = -nS; k <= nS; k++) { const x = base[c + k] - (off ? off[c + k] : 0) + sig.footLow[c + k]; if (isNum(x)) v.push(x); }
+        return v.length >= Math.max(2, nS) ? median(v) : NaN;
+      };
+      const d = (Hat(i0) - Hat(i1)) / fhPerM;
+      if (isNum(d) && Math.abs(d) < 0.4) staticDeltaM = d;
+    }
+  }
+
   // Postura: il tempo di volo vale solo se bacino-piedi sono uguali allo stacco e all'atterraggio. Se si atterra più
   // flessi (bacino più basso) il volo si allunga e l'altezza è sovrastimata (letteratura: 2–11 %, ~2,5 cm).
   let postureDropCm = NaN, heightCorrCm = NaN;
@@ -601,6 +619,7 @@ export function describeJump(sig, cache, to, td, ctx = {}) {
     to, td, T, heightCm, v0, flightMs: T * 1000, uncT, uncCm, postureDropCm, heightCorrCm, apexCm, apexUncCm, apexAsymMs, apexProxy, apexSpreadCm, apexV0, apexV0Unc, apexT, apexSigTa, apexRmseRel, geoCm, geoUncCm,
     dt, fps: 1 / dt, fitFailed: !!ctx.fitFailed, scaleAssumed: !ctx.heightCm,
     riseFromStartCm: NaN, riseFromStartUncCm: NaN, takeoffRiseCm: NaN, ballisticCm: NaN,
+    staticDeltaM,
     bestCm: NaN, bestUncCm: NaN, bestV0: NaN, bestV0Unc: NaN, landDeltaCm: NaN, landDeltaUncCm: NaN, bestW: NaN, hUseCm: heightCm, hUseSource: 'volo',
     massKg: ctx.massKg || 0, hpoM: NaN, headline: ctx.headline === 'flight' ? 'flight' : 'integrated',
     contact: ctx.contact ?? null, contactSource: ctx.contactSource ?? null,

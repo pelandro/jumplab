@@ -219,6 +219,7 @@ for (const [lab, up] of [['braccia orizzontali → giù', Math.PI / 2], ['bracci
   { const j = base(); j.apexCm = 50; ck('Validazione: parabola più alta del volo → incoerente, nessun metodo consigliato', st(j).status === 'incoerenti' && st(j).recommended === null); }
   { const j = base(); j.apexCm = 31; ck('Validazione: deficit del 30 % → incoerente', st(j).status === 'incoerenti'); }
   { const j = base(); j.apexAsymMs = -55; ck('Validazione: culmine a −55 ms da metà volo → istanti sospetti', st(j).flags.some((f) => f.code === 'asimmetria') && st(j).status === 'incoerenti'); }
+  { const j = base(); j.staticDeltaM = 0.10; j.apexAsymMs = -(0.01 / (g * 0.6)) * 1000; st(j); const j2 = base(); j2.staticDeltaM = 0.01; j2.apexAsymMs = -(0.01 / (g * 0.6)) * 1000; st(j2); ck('Validazione: misure di Δ che divergono (traiettoria 1 cm, statica 10 cm) → livello della stima integrata abbassato con motivo; concordi → nessun motivo', mid(j, 'integrato').contro.some((t) => /divergono/.test(t)) && !mid(j2, 'integrato').contro.some((t) => /divergono/.test(t)) && mid(j, 'integrato').score < mid(j2, 'integrato').score); }
   { const j = base(); j.geoCm = 58; const v = st(j); ck('Validazione: scala incoerente → «parziale», flag scala, i metodi sul tempo restano', v.status === 'parziale' && v.flags.some((f) => f.code === 'scala') && v.recommended === 'integrato' && mid(j, 'baricentro').level !== 'alta'); }
   { const j = base(); j.apexCm = NaN; j.apexT = NaN; j.geoCm = NaN; const v = st(j); ck('Validazione: baricentro non adattabile → solo volo, dichiarato', v.status === 'parziale' && v.flags.some((f) => f.code === 'solo_volo') && mid(j, 'parabola').nonDisponibile); }
   { const j = base(); j.flow = null; const v = st(j); ck('Validazione: istanti dai landmark a 240 fps → volo e parabola non «alta»', mid(j, 'volo').level !== 'alta' && mid(j, 'parabola').level !== 'alta'); }
@@ -268,6 +269,18 @@ for (const [lab, up] of [['braccia orizzontali → giù', Math.PI / 2], ['bracci
   chk('Il peso della misura cala con l\'incertezza', Math.min(b.wMeas, 0.1), b.wMeas, 1e-9);
   ck('Integrata: incertezza finita, v0 e altezza coerenti (h = v0²/2g)', Math.abs(a.cm - (a.v0 * a.v0 / (2 * g)) * 100) < 1e-9 && a.uncCm > 0 && Number.isFinite(a.uncCm));
   ck('Integrata: nessun dato del baricentro → null', integrate({ T: 0.5, uncT: 0.005, apexAsymMs: NaN, apexSigTa: NaN }) === null);
+  // seconda tecnica (Δ statico): media pesata per precisione di tre evidenze e gonfiamento dell'incertezza se le due misure divergono
+  {
+    const T2 = 0.6, sTa = 0.004, sD = g * T2 * sTa, dM = 0.10, st = 0.02, sS = 0.025, asym2 = -(dM / (g * T2)) * 1000;
+    const r = integrate({ T: T2, uncT: 0, apexAsymMs: asym2, apexSigTa: sTa, staticDeltaM: st, staticSigM: sS });
+    const prec = 1 / sD ** 2 + 1 / sS ** 2 + 1 / PRIOR.sigM ** 2, dStar = (dM / sD ** 2 + st / sS ** 2 + PRIOR.muM / PRIOR.sigM ** 2) / prec;
+    chk('Integrata con due misure di Δ: Δ* = media pesata per precisione (misura dinamica, statica, prior)', r.deltaCm, dStar * 100, 0.01, 'cm');
+    const kap = Math.abs(dM - st) / Math.hypot(sD, sS);
+    chk('Integrata: l\'incertezza di Δ si gonfia con la tensione tra le due misure', r.deltaUncCm, (Math.max(1, kap) / Math.sqrt(prec)) * 100, 0.01, 'cm');
+    chk('Integrata: i tre pesi sommano a 1', r.wMeas + r.wStatic + r.wPrior, 1, 1e-9);
+    const c = integrate({ T: T2, uncT: 0, apexAsymMs: -(0.03 / (g * T2)) * 1000, apexSigTa: sTa, staticDeltaM: 0.03, staticSigM: sS });
+    chk('Integrata: nessuna tensione (misure concordi) ⇒ incertezza non gonfiata', c.tension, 0, 0.35);
+  }
 }
 
 // ---- Stima integrata: Monte Carlo (errore e copertura) per popolazioni diverse di atterraggio flesso (Δ) ----
@@ -292,9 +305,10 @@ for (const [lab, up] of [['braccia orizzontali → giù', Math.PI / 2], ['bracci
     const rm = (a) => Math.sqrt(a.reduce((x, y) => x + y * y, 0) / a.length), me = (a) => a.reduce((x, y) => x + y, 0) / a.length;
     return { n, bias: me(E.in), rmse: rm(E.in), rmseFT: rm(E.ft), rmseAp: rm(E.ap), cover2: (100 * cov) / n };
   };
-  const typ = run(0.05, 0.03, 0.005, 0.02);
-  chk('Integrata (Monte Carlo, Δ ~ N(5,3) cm, istanti 5 ms, deriva proxy 2 cm): bias', typ.bias, 0, 0.8, 'cm');
-  ck(`Integrata: RMSE ${typ.rmse.toFixed(2)} cm ≤ 0,6 × RMSE del volo (${typ.rmseFT.toFixed(2)} cm) e ≤ RMSE dell'apice (${typ.rmseAp.toFixed(2)} cm) + 0,1`, typ.rmse <= 0.6 * typ.rmseFT && typ.rmse <= typ.rmseAp + 0.1);
+  const typ = run(0.035, 0.03, 0.005, 0.02);
+  chk('Integrata (Monte Carlo, Δ ~ N(3,5; 3) cm = prior, istanti 5 ms, deriva proxy 2 cm): bias', typ.bias, 0, 0.8, 'cm');
+  { const t5 = run(0.05, 0.03, 0.005, 0.02); chk('Integrata (Monte Carlo, Δ ~ N(5,3) cm: popolazione 1,5 cm più flessa della prior): bias', t5.bias, 0, 1.3, 'cm'); }
+  ck(`Integrata (popolazione = prior): RMSE ${typ.rmse.toFixed(2)} cm ≤ 0,7 × RMSE del volo (${typ.rmseFT.toFixed(2)} cm) e ≤ RMSE dell'apice (${typ.rmseAp.toFixed(2)} cm) + 0,1`, typ.rmse <= 0.7 * typ.rmseFT && typ.rmse <= typ.rmseAp + 0.1);
   chk('Integrata (Monte Carlo): copertura dell\'incertezza a 2σ (≥ 90 %)', Math.min(typ.cover2, 95), 95, 5, '%');
   const rigid = run(0.01, 0.01, 0.005, 0.0), flex = run(0.10, 0.03, 0.005, 0.0);
   ck(`Integrata con prior sbagliata (atterraggio rigido: bias ${rigid.bias.toFixed(2)} cm, molto flesso: ${flex.bias.toFixed(2)} cm): errore ≤ 2,5 cm`, Math.abs(rigid.bias) <= 2.5 && Math.abs(flex.bias) <= 2.5 && rigid.rmse <= 2.5 && flex.rmse <= 2.5);
@@ -313,6 +327,7 @@ for (const [lab, up] of [['braccia orizzontali → giù', Math.PI / 2], ['bracci
     }
     const mean = (a) => a.reduce((x, y) => x + y, 0) / a.length;
     chk(`Pipeline (Δ vero ${(D * 100).toFixed(0)} cm, ${n} salti): errore della stima integrata sull'altezza balistica`, mean(eIn), 0, 1.5, 'cm');
+    { const sd2 = []; for (const seed of [1, 2, 3]) { const scn = buildScenario('cmj', { T: 0.55, landDrop: D }); const r2 = analyze(renderTrack(scn, { fps: 240, seed: seed * 5, noise: 0.0025 }), { testType: 'cmj', heightCm: 175 }); const j2 = r2.jumps[0]; if (j2 && Number.isFinite(j2.staticDeltaM)) sd2.push(j2.staticDeltaM * 100); } if (sd2.length) chk(`Pipeline (Δ vero ${(D * 100).toFixed(0)} cm): Δ statico (baricentro sopra il piede)`, mean(sd2), D * 100, 1.5, 'cm'); }
     if (D >= 0.05) ck(`Pipeline (Δ ${(D * 100).toFixed(0)} cm): il solo volo sovrastima di ${mean(eFT).toFixed(1)} cm, l'integrata no`, mean(eFT) > 2 && Math.abs(mean(eIn)) < 1.5);
   }
   // valori derivati: RSI, Samozino e velocità media seguono l'altezza scelta

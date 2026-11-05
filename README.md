@@ -59,7 +59,7 @@ Cloudflare Pages o Vercel come sito statico. Apri l'URL HTTPS su iPhone con Safa
 
 ## Novità v4.7 (modello integrato)
 
-- **Stima integrata dell'altezza** (equivalente all'impulso-quantità di moto delle pedane): corregge il tempo di volo con la parte misurabile della traiettoria del baricentro, pesata per affidabilità (non è una media). Simulazione con verità nota: errore 0,3–0,7 cm dove il solo volo sovrastima di 3–5 cm.
+- **Stima integrata dell'altezza** (equivalente all'impulso-quantità di moto delle pedane): corregge il tempo di volo con il baricentro più basso all'atterraggio, misurato in due modi indipendenti (traiettoria e posizione statica) più una prior dalla letteratura, pesati per precisione (non è una media) e con incertezza maggiore quando le misure divergono. Simulazione con verità nota: errore 0,4–0,9 cm dove il solo volo sovrastima di 3–5 cm. Sui video reali le due misure divergono in 3 salti su 4: dichiarato in `VALIDAZIONE.md`.
 - Altezza principale = stima integrata, con il tempo di volo sempre accanto (commutabile). RSI, Samozino e velocità media la seguono.
 - Contromovimento e spinta dal baricentro a corpo intero invece che dal bacino.
 - Incertezza propagata con il modello fisico; calibrata con Monte Carlo (copertura a 2σ 95 %).

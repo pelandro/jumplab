@@ -115,8 +115,9 @@ function integratedMethod(j, fu, F, P) {
   const m = { id: 'integrato', nome: 'Stima integrata', cm: fu.cm, uncCm: fu.uncCm, v0: fu.v0, v0Unc: fu.v0Unc, pro: [], contro: [] };
   m.score = clamp01(fu.wMeas * Math.min(F.score, P.score) + (1 - fu.wMeas) * Math.min(F.score, 0.7));
   m.level = levelOf(m.score);
-  m.pro.push(`tempo di volo corretto con l'atterraggio ${fu.deltaCm.toFixed(1)} ± ${fu.deltaUncCm.toFixed(1)} cm più basso dello stacco (misurato ${fu.deltaMeasCm.toFixed(1)} ± ${fu.deltaMeasUncCm.toFixed(1)} cm)`);
-  m.pro.push(`peso della misura dal baricentro ${(fu.wMeas * 100).toFixed(0)} %, della prior di popolazione ${((1 - fu.wMeas) * 100).toFixed(0)} %`);
+  m.pro.push(`tempo di volo corretto con l'atterraggio ${fu.deltaCm.toFixed(1)} ± ${fu.deltaUncCm.toFixed(1)} cm più basso dello stacco`);
+  m.pro.push(`evidenza su Δ: traiettoria ${fu.deltaMeasCm.toFixed(1)} ± ${fu.deltaMeasUncCm.toFixed(1)} cm (peso ${(fu.wMeas * 100).toFixed(0)} %)${fin(fu.deltaStaticCm) ? `, posizione statica ${fu.deltaStaticCm.toFixed(1)} ± ${fu.deltaStaticUncCm.toFixed(1)} cm (peso ${(fu.wStatic * 100).toFixed(0)} %)` : ''}, prior di popolazione (peso ${(fu.wPrior * 100).toFixed(0)} %)`);
+  if (fu.tension > 1.5) { m.score = clamp01(m.score - (fu.tension > 2.5 ? 0.3 : 0.15)); m.level = levelOf(m.score); m.contro.push(`le due misure di Δ divergono (${fu.deltaMeasCm.toFixed(1)} contro ${fu.deltaStaticCm.toFixed(1)} cm): evidenza in conflitto, incertezza aumentata di ${fu.tension.toFixed(1)}×`); }
   for (const t of F.contro) m.contro.push('istanti: ' + t);
   for (const t of P.contro) if (!/^prospettiva/.test(t)) m.contro.push('baricentro: ' + t);
   return m;
@@ -135,9 +136,13 @@ export function validateJump(j) {
     if (fin(j.geoCm)) j.geoUncCm = j.geoCm * Math.hypot(0.1, (2 * sT) / j.apexT);
   }
   // stima integrata (fusion.js): ricalcolata qui perché dipende dall'incertezza sugli istanti, che cambia dopo i pixel e la rifinitura
-  const fu = integrate({ T: j.T, uncT: j.uncT, apexAsymMs: j.apexAsymMs, apexSigTa: j.apexSigTa });
+  // incertezza del Δ statico: istanti (la posizione del baricentro cambia di ~g·T/2 al secondo), rumore dei punti del piede (~2,5 cm, dallo scarto tra
+  // modelli sullo stesso salto) e scala (8 %)
+  const sStat = fin(j.staticDeltaM) ? Math.hypot((G * j.T * (j.uncT || 0)) / 2, 0.025, 0.08 * Math.abs(j.staticDeltaM)) : NaN;
+  const fu = integrate({ T: j.T, uncT: j.uncT, apexAsymMs: j.apexAsymMs, apexSigTa: j.apexSigTa, staticDeltaM: j.staticDeltaM, staticSigM: sStat });
   j.bestCm = fu ? fu.cm : NaN; j.bestUncCm = fu ? fu.uncCm : NaN; j.bestV0 = fu ? fu.v0 : NaN; j.bestV0Unc = fu ? fu.v0Unc : NaN;
   j.landDeltaCm = fu ? fu.deltaCm : NaN; j.landDeltaUncCm = fu ? fu.deltaUncCm : NaN; j.landDeltaMeasCm = fu ? fu.deltaMeasCm : NaN; j.bestW = fu ? fu.wMeas : NaN;
+  j.landDeltaStaticCm = fu ? fu.deltaStaticCm : NaN; j.bestWStatic = fu ? fu.wStatic : NaN; j.deltaTension = fu ? fu.tension : NaN;
   const F = flightMethod(j);
   const [Gm, P] = comMethods(j);
   const I = fu ? integratedMethod(j, fu, F, P) : null;

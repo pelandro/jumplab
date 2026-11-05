@@ -466,38 +466,60 @@ Richiesta: ricontrollare la correttezza dei tre metodi e dei parametri, raffinar
 | Errore dominante della catena | propagazione | l'**istante di stacco**: 5 ms ⇒ ±1,4 cm sull'altezza da velocità di stacco; il modello non può eliminarlo |
 
 ### Il modello integrato (`js/engine/fusion.js`)
-Fisica: tra stacco e atterraggio il baricentro è in caduta libera; se all'atterraggio è più basso di Δ, **v₀ = g·T/2 − Δ/T** e h = v₀²/2g (quella delle pedane con impulso-quantità di moto). Il volo ha T preciso ma ignora Δ; Δ si misura dalla traiettoria del baricentro come asimmetria del culmine (**Δ̂ = −g·T·(t_culmine − metà volo)**, indipendente dalla scala). Combinazione (non è una media dei tre metodi): **Δ\* = media pesata per precisione** di Δ̂ e di una prior debole di popolazione (**Δ = 5 ± 4,5 cm**: letteratura, volo − velocità di stacco ≈ 2,5 cm in media e fino a ~10 cm). Se la misura è incerta (baricentri discordi, istanti rumorosi) pesa di più la prior, se è precisa prevale la misura. Incertezza dal modello: (g·σ_ev/2)² + w²·g²·(σ_ev²/4 + σ_culmine²) + ((1−w)·σ_prior/T)². I tre metodi restano come controlli, con affidabilità motivata.
+Fisica: tra stacco e atterraggio il baricentro è in caduta libera; se all'atterraggio è più basso di Δ, **v₀ = g·T/2 − Δ/T** e h = v₀²/2g (l'altezza delle pedane con impulso-quantità di moto). Il volo ha T preciso ma ignora Δ. Δ si misura in **due modi indipendenti**:
+1. **dinamico**, dalla traiettoria: Δ̂ = −g·T·(t_culmine − metà volo), indipendente dalla scala;
+2. **statico**, dalla posizione: altezza del baricentro sopra il piede più basso allo stacco meno all'atterraggio (mediana su ±40 ms; con i piedi a terra nei due istanti è direttamente Δ).
+Si aggiunge una **prior debole di popolazione, Δ = 3,5 ± 4 cm** (vedi sotto). Combinazione (non è una media dei tre metodi): **Δ\* = media pesata per precisione** delle tre evidenze; se le due misure divergono oltre le loro incertezze l'incertezza a posteriori si gonfia in proporzione (rapporto di Birge). Incertezza: (g·σ_ev/2)² + (σ_Δ\*/T)². I pesi e la tensione sono mostrati nei risultati; i tre metodi restano come controlli, con affidabilità motivata.
 
-**Monte Carlo** (simulazione autonoma, 120 fps, rumore del baricentro 1 cm, istanti 5 ms; RMSE su h in cm, volo / apice / **integrata**):
+**Monte Carlo** (simulazione autonoma, 120 fps, rumore del baricentro 1 cm, istanti 5 ms; solo la tecnica dinamica + prior; RMSE su h in cm, volo / apice / **integrata**):
 | Popolazione di Δ | senza deriva del proxy | con deriva 2 cm |
 |---|---|---|
-| tipica N(5, 3) cm | 3,10 / 1,54 / **1,39** | 3,06 / 1,90 / **1,52** |
-| atterraggio rigido N(1, 1) | 1,31 / 1,61 / 1,53 | 1,30 / 1,89 / **1,32** |
-| molto flesso N(10, 3) (prior sbagliata) | 5,24 / 1,54 / 1,80 | 5,24 / 1,84 / 2,15 |
-| mista N(6, 5) | 3,98 / 1,55 / **1,61** | 3,92 / 1,86 / **1,77** |
-Nel test della suite (Δ ~ N(5,3), istanti 5 ms, deriva 2 cm): bias +0,58 cm, RMSE 1,56 cm contro 3,08 (volo) e 1,84 (apice), copertura a 2σ 95 %. **Quando la prior è sbagliata** (popolazione molto flessa) la stima integrata perde 0,3–0,4 cm rispetto alla sola parabola e ha un bias di +0,7…+1,8 cm: è il costo dichiarato della prior.
+| tipica N(3,5; 3) cm (= prior) | 2,51 / 1,57 / **1,39** | 2,52 / 1,88 / **1,51** |
+| atterraggio rigido N(1, 1) | 1,31 / 1,61 / 1,40 | 1,30 / 1,89 / **1,28** |
+| molto flesso N(10, 3) (prior sbagliata) | 5,24 / 1,56 / 2,17 | 5,24 / 1,84 / 2,51 |
+| mista N(6, 5) | 3,97 / 1,55 / 1,77 | 3,91 / 1,85 / 1,99 |
+**Costo dichiarato della prior**: con popolazioni molto più flesse della prior la stima integrata ha un bias di +1,6…+2,1 cm e perde 0,6–0,7 cm rispetto alla sola parabola; rispetto alla sola parabola guadagna 0,2–0,6 cm con popolazioni tipiche o rigide; rispetto al tempo di volo l'errore è 1,7–1,8 volte inferiore con popolazioni tipiche, 2,0–2,2 volte con popolazioni miste e **uguale** (nessun vantaggio) con atterraggi rigidi.
 
-**Pipeline completa con verità nota** (simulatore con atterraggio più basso dello stacco di Δ, 240 fps, eventi automatici): errore della stima integrata **0,3 / 0,5 / 0,7 cm** con Δ = 0 / 5 / 10 cm; il solo volo sovrastima di 0,5 / 3,0 / 5,4 cm.
+**Pipeline completa con verità nota** (simulatore con atterraggio più basso dello stacco di Δ, 240 fps, eventi automatici): errore della stima integrata **0,4 / 0,7 / 0,9 cm** con Δ = 0 / 5 / 10 cm (il solo volo sovrastima di 0,5 / 3,0 / 5,4 cm); Δ statico **−0,05 / 4,6 / 9,5 cm** (veri 0 / 5 / 10).
+
+### Un risultato scomodo: le due misure di Δ non concordano sui video reali
+| Video | Δ dalla traiettoria | Δ statico | tensione |
+|---|---|---|---|
+| 0181 frontale | 12,6 | 3,9 | 1,7 |
+| 0180 frontale | 11,8 | 5,3 | 1,0 |
+| 0207 laterale | 7,0 | 9,1 | 0,5 |
+| 0208 laterale | 13,9 | 4,9 | 2,3 |
+In 3 salti su 4 la traiettoria dà 12–14 cm e la posizione statica 4–5 cm (in linea con la letteratura, vedi sotto); in 0207 concordano. Lo scarto (~7 cm) supera il rumore delle singole misure: **una delle due ha un errore sistematico su questi video e senza pedana non so quale**. Ipotesi non verificate: istanti entrambi in ritardo di ~10–13 ms (sposterebbe la traiettoria di +5…+7 cm, ma anche la misura statica), baricentro stimato dai landmark non balistico nella seconda metà del volo, otturatore rolling a 60 fps. Il modello non sceglie: usa entrambe con i loro pesi, gonfia l'incertezza quando divergono e abbassa il livello di affidabilità della stima integrata (tensione > 1,5).
 
 ### Sui 4 salti reali (istanti dai pixel; altezze in cm)
-| Video | Volo | Parabola | **Integrata** | Δ misurato → a posteriori | Peso della misura |
+| Video | Volo | Parabola | **Integrata** | Δ a posteriori | Pesi traiettoria / statico / prior |
 |---|---|---|---|---|---|
-| 0181 frontale | 34,9 | 28,9 ± 2,0 | **30,4 ± 1,6** | 12,6 → 9,2 | 55 % |
-| 0180 frontale | 46,9 | 41,2 ± 2,7 | **43,1 ± 1,9** | 11,8 → 7,7 | 40 % |
-| 0207 laterale | 44,7 | 41,2 ± 1,5 | **41,5 ± 1,4** | 7,0 → 6,5 | 76 % |
-| 0208 laterale | 42,4 | 35,8 ± 1,4 | **36,7 ± 1,3** | 13,9 → 11,8 | 77 % |
-I Δ misurati (7–14 cm) sono più alti della prior (5 cm): la stima integrata si colloca tra la parabola e il volo, più vicina alla parabola quando la misura è precisa. **Non è stata usata questa evidenza per ritoccare la prior** (sarebbe circolare con 4 salti di 2 atleti).
+| 0181 frontale | 34,9 | 28,9 ± 2,0 | **31,9 ± 1,9** | 6,0 | 25 / 48 / 27 % |
+| 0180 frontale | 46,9 | 41,2 ± 2,7 | **44,1 ± 1,4** | 5,8 | 16 / 52 / 32 % |
+| 0207 laterale | 44,7 | 41,2 ± 1,5 | **41,2 ± 1,2** | 7,0 | 49 / 31 / 20 % |
+| 0208 laterale | 42,4 | 35,8 ± 1,4 | **38,0 ± 2,0** | 9,0 | 49 / 32 / 19 % |
+La stima integrata cade tra parabola e volo, più vicina al volo dove l'evidenza statica e la prior pesano di più. **Nessuna di queste evidenze è stata usata per ritoccare la prior** (sarebbe circolare con 4 salti di 2 atleti): la prior viene dalla letteratura.
 
 ### Altezza principale
 Ora l'app mostra come cifra principale la **stima integrata** (equivalente all'impulso-quantità di moto delle pedane), con il tempo di volo sempre visibile accanto; si può tornare al solo tempo di volo (come le app a 240 fps) dal pulsante nei risultati o dalle impostazioni. RSI, Samozino e velocità media seguono la scelta.
 
-### Letteratura consultata (e cosa non ho potuto leggere)
-Concorda con l'impostazione: il tempo di volo **sovrastima quando gli arti sono flessi all'atterraggio** (fino a ~10 cm secondo un comunicato dell'Università Keio) e una versione corretta con il movimento del grande trocantere non ha differenze significative con l'impulso-quantità di moto (studio 2025); le app a tempo di volo a 240 fps concordano con le pedane (My Jump 2); una stima di posa con MMPose sul CMJ mostra r = 0,992 con le pedane (correlazione, non errore assoluto); Theia3D concorda con il sistema a marcatori entro 0,27–0,35 cm. Non ho trovato una validazione OpenCap del CMJ. I testi completi su NCBI/PMC non erano raggiungibili da questo ambiente: **non cito numeri che non ho letto**.
+### Letteratura letta (testi completi via l'API BioC di NCBI) e cosa ne ricavo
+**Aleksic et al., markerless MMPose vs pedane (PMC11677309)**: 12 partecipanti × 5 CMJ a mani sui fianchi, iPhone 13 a 240 fps a 2 m, vista laterale, MMPose con la statura per la calibrazione, baricentro a segmenti di Dempster; pedane AMTI a 1000 Hz.
+- Altezza dal **tempo di volo**: 0,285 m contro 0,286 m delle pedane, differenza −0,001 m (IC −0,005…0,003), ICC 0,985 ⇒ gli istanti da pose a 240 fps non introducono bias sul volo.
+- Altezza come **spostamento del baricentro dalla posizione iniziale**, non corretta: 0,363 contro 0,295 m (**+0,068 m**, ICC 0,787); corretta per l'altezza della caviglia allo stacco: 0,270 contro 0,275 m (−0,005 m, n.s., ICC 0,864). È la distinzione tra spostamento dal punto iniziale e altezza balistica implementata qui.
+- Traccia di velocità del baricentro: bias +0,005 m/s, limiti di accordo −0,253…+0,263 m/s, RMSE 0,138 m/s, r = 0,992; velocità di stacco 2,346 contro 2,299 m/s (+0,047 m/s, ICC 0,944).
+- Dalle medie e dalla deviazione standard riportate (mio calcolo): altezza da velocità di stacco delle pedane ≈ 27,5 cm contro 28,6 cm dal tempo di volo ⇒ **volo − velocità di stacco ≈ 1,1 cm ⇒ Δ ≈ 2,2 cm** su questi partecipanti.
+
+**Meta-analisi su My Jump (PMC10656545)**: 21 studi, 839 partecipanti; punteggi grezzi non diversi dai criteri (Hedges g = −0,047; p = 0,21), correlazione r = 0,989, affidabilità r = 0,986. **Solo misure basate sul tempo di volo**: gli autori dichiarano che servono ulteriori studi contro i metodi di riferimento con velocità di stacco; molti criteri sono a loro volta calcolati con il tempo di volo, anche dalle pedane.
+
+**Non verificato**: il comunicato dell'Università Keio (sovrastima del volo fino a ~10 cm; sito non raggiungibile da questo ambiente) e un altro studio che riporterebbe volo − velocità di stacco ≈ 2,5 cm (visto solo in un riassunto di ricerca). **Correzione**: in una versione precedente di questo documento e nella risposta in chat avevo attribuito a PMC10656545 l'affermazione che una versione del volo corretta con il movimento dell'anca non differisse dall'impulso-quantità di moto; quell'articolo è la meta-analisi su My Jump e non dice questo. L'affermazione veniva da un riassunto di ricerca di cui non ho identificato la fonte e **non la uso**. Non ho trovato una validazione OpenCap del CMJ.
+
+**Prior scelta**: Δ = 3,5 ± 4 cm, tra i ~2,2 cm ricavati dai dati delle pedane e i ~5 cm del secondo studio, con dispersione che include sovrastime fino a ~10 cm.
 
 ### Limiti (invariati e nuovi)
 - **Nessuna verità da pedana**: il modello è validato con simulazione e coerenza fisica, non con misure di riferimento. L'errore assoluto sui video reali resta non dimostrato.
-- La prior (5 ± 4,5 cm) e l'incertezza sugli istanti sono stime; con atterraggi molto più flessi della prior la stima ha un bias positivo di 1–2 cm.
-- L'istante di stacco domina l'errore (±1,4 cm per 5 ms) e la sua definizione (pixel contro soglia di forza) può differire di alcuni ms in modo sistematico: non misurabile senza pedana.
-- Il baricentro è stimato dai punti dei landmark: se le braccia o le gambe non sono osservabili si ripiega su tronco o bacino, con più incertezza dichiarata.
+- **Le due misure di Δ divergono in 3 salti su 4** (7 cm): un errore sistematico di una delle due, non identificato. Se è condiviso (stessi istanti, stesso baricentro) non si vede nemmeno dalla tensione.
+- La prior (3,5 ± 4 cm) e le incertezze di ingresso sono stime; con atterraggi molto più flessi della prior la stima ha un bias positivo di 1–2 cm.
+- I partecipanti dello studio con pedane sono 12, a mani sui fianchi, con salti di ~28 cm: non rappresentano atleti con oscillazione delle braccia.
+- L'istante di stacco domina l'errore (±1,4 cm per 5 ms) e la sua definizione (pixel contro soglia di forza) può differire di alcuni ms in modo sistematico.
 - Per verificare: una pedana, o un accelerometro sincronizzato (vedi sopra).
-
