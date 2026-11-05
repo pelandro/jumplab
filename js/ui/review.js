@@ -371,10 +371,25 @@ export const review = {
         c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
         thumb = c.toDataURL('image/jpeg', 0.7);
       } catch { /* miniatura facoltativa */ }
-      const pick = (j) => ({ to: j.to, td: j.td, T: j.T, heightCm: hd(j), heightFlightCm: j.heightCm, bestCm: j.bestCm, bestUncCm: j.bestUncCm, landDeltaCm: j.landDeltaCm, landDeltaMeasCm: j.landDeltaMeasCm, landDeltaStaticCm: j.landDeltaStaticCm, hSource: j.hUseSource, contact: j.contact, rsi: j.rsi, rsiFlight: j.rsiFlight, rsiMod: j.rsiMod, dipCm: j.dipCm, v0: j.v0, boxCm: j.boxCm, forceN: j.forceN, powerW: j.powerW, sayersW: j.sayersW, confidence: j.confidence, manual: !!j.manual, uncCm: j.uncCm, heightCorrCm: j.heightCorrCm, apexCm: j.apexCm, apexUncCm: j.apexUncCm, apexAsymMs: j.apexAsymMs, apexProxy: j.apexProxy, apexSpreadCm: j.apexSpreadCm, apexV0: j.apexV0, apexV0Unc: j.apexV0Unc, geoCm: j.geoCm, geoUncCm: j.geoUncCm, ballisticCm: j.ballisticCm, riseFromStartCm: j.riseFromStartCm, takeoffRiseCm: j.takeoffRiseCm, val: j.verdict?.status, rec: j.verdict?.recommended, lvl: j.methods ? j.methods.map((m) => m.level[0]).join('') : '', refined: !!j.refined, ev: j.flow ? (j.flow.src.to === 'pixel' && j.flow.src.td === 'pixel' ? 'pixel' : 'misto') : 'landmark', ftct: j.ftct, forceRel: j.forceRel, powerRel: j.powerRel });
+      const pick = (j) => ({
+        to: j.to, td: j.td, T: j.T, heightCm: hd(j), heightFlightCm: j.heightCm, uncCm: j.uncCm, hSource: j.hUseSource,
+        bestCm: j.bestCm, bestUncCm: j.bestUncCm, bestV0: j.bestV0, bestV0Unc: j.bestV0Unc,
+        landDeltaCm: j.landDeltaCm, landDeltaUncCm: j.landDeltaUncCm, landDeltaMeasCm: j.landDeltaMeasCm, landDeltaStaticCm: j.landDeltaStaticCm, deltaTension: j.deltaTension,
+        bestW: j.bestW, bestWStatic: j.bestWStatic,
+        heightCorrCm: j.heightCorrCm, apexCm: j.apexCm, apexUncCm: j.apexUncCm, apexAsymMs: j.apexAsymMs, apexProxy: j.apexProxy, apexSpreadCm: j.apexSpreadCm, apexV0: j.apexV0, apexV0Unc: j.apexV0Unc,
+        geoCm: j.geoCm, geoUncCm: j.geoUncCm, ballisticCm: j.ballisticCm, riseFromStartCm: j.riseFromStartCm, riseFromStartUncCm: j.riseFromStartUncCm, takeoffRiseCm: j.takeoffRiseCm,
+        contact: j.contact, rsi: j.rsi, rsiFlight: j.rsiFlight, rsiMod: j.rsiMod, dipCm: j.dipCm, timeToTakeoff: j.timeToTakeoff, hpoM: j.hpoM, phaseProxy: j.phaseProxy,
+        v0: j.v0, vMean: j.vMean, boxCm: j.boxCm, forceN: j.forceN, powerW: j.powerW, sayersW: j.sayersW, ftct: j.ftct, forceRel: j.forceRel, powerRel: j.powerRel, sayersRel: j.sayersRel,
+        confidence: j.confidence, manual: !!j.manual, refined: !!j.refined,
+        val: j.verdict?.status, rec: j.verdict?.recommended, lvl: j.methods ? j.methods.map((m) => m.level[0]).join('') : '',
+        verdict: j.verdict ? { titolo: j.verdict.titolo, why: j.verdict.why, flags: (j.verdict.flags || []).map((f) => f.text) } : null,
+        methods: j.methods ? j.methods.map((m) => ({ id: m.id, nome: m.nome, cm: m.cm, uncCm: m.uncCm, level: m.level })) : null,
+        issues: (j.issues || []).filter((x) => x.level !== 'ok').map((x) => ({ level: x.level, text: x.text })),
+        ev: j.flow ? (j.flow.src.to === 'pixel' && j.flow.src.td === 'pixel' ? 'pixel' : 'misto') : 'landmark',
+      });
       const rec = {
         id: store.uid(), date: Date.now(), athleteId: ath.id, athleteName: ath.name, testType: session.params.testType, leg: S.leg, view: session.quality?.view || null, ver: VERSION,
-        fileName: session.meta.name, fps: session.meta.fps, cal: session.cal, heightCm: session.params.heightCm,
+        fileName: session.meta.name, fps: session.meta.fps, cal: session.cal, heightCm: session.params.heightCm, massKg: session.params.massKg || null,
         jumps: used.map(pick), best: hd(best), thumb,
       };
       store.addSession(rec);

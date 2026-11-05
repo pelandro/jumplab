@@ -57,6 +57,11 @@ Cloudflare Pages o Vercel come sito statico. Apri l'URL HTTPS su iPhone con Safa
 - Ripiego sul bacino quando i piedi non sono rilevati per brevi tratti.
 - Dettagli, misure e limiti in `VALIDAZIONE.md`.
 
+## Novità v4.7.1 (storico completo)
+
+- **Lo storico mostra tutti i valori dei risultati**, non solo altezza e volo: per ogni salto una scheda con altezze (integrata, tempo di volo, parabola, spostamento, balistica), tempi, RSI, dip, velocità di stacco, forza e potenza, baricentro all'atterraggio, validazione dei metodi con livelli e avvisi, fonte degli istanti. Le sessioni salvate con versioni precedenti mostrano i dati che hanno.
+- Salvate anche statura, massa e tutti i valori di validazione.
+
 ## Novità v4.7 (modello integrato)
 
 - **Stima integrata dell'altezza** (equivalente all'impulso-quantità di moto delle pedane): corregge il tempo di volo con il baricentro più basso all'atterraggio, misurato in due modi indipendenti (traiettoria e posizione statica) più una prior dalla letteratura, pesati per precisione (non è una media) e con incertezza maggiore quando le misure divergono. Simulazione con verità nota: errore 0,4–0,9 cm dove il solo volo sovrastima di 3–5 cm. Sui video reali le due misure divergono in 3 salti su 4: dichiarato in `VALIDAZIONE.md`.

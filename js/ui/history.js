@@ -69,11 +69,92 @@ export const history = {
   },
 };
 
+const SRC = { pixel: 'pixel del piede', misto: 'pixel + landmark', landmark: 'landmark del modello' };
+const SRC_HEIGHT = { integrata: 'stima integrata', volo: 'tempo di volo' };
+
+/** Un valore con la sua incertezza, o null se non disponibile (le sessioni salvate con versioni vecchie hanno meno dati). */
+const val = (L, cm, unc) => (Number.isFinite(cm) ? `${fmt.num(L(cm).v, 1)}${Number.isFinite(unc) ? ' ± ' + fmt.num(L(unc).v, 1) : ''}` : null);
+const num = (v, d = 2) => (Number.isFinite(v) ? fmt.num(v, d) : null);
+
+/** Gruppi di valori di un salto, solo quelli presenti. [titolo, [[etichetta, valore, unità]]] */
+function jumpGroups(j, L, s) {
+  const u = L(0).u, fl = Number.isFinite(j.heightFlightCm) ? j.heightFlightCm : j.heightCm;
+  const g = [];
+  g.push(['Altezza', [
+    ['Altezza mostrata', val(L, j.heightCm, j.hSource === 'integrata' ? j.bestUncCm : j.uncCm), u],
+    ['Stima integrata', val(L, j.bestCm, j.bestUncCm), u],
+    ['Dal tempo di volo', val(L, fl, j.uncCm), u],
+    ['Parabola del baricentro', val(L, j.apexCm, j.apexUncCm), u],
+    ['Spostamento del baricentro (scala)', val(L, j.geoCm, j.geoUncCm), u],
+    ['Altezza balistica', val(L, j.ballisticCm), u],
+    ['Spostamento dal punto iniziale', val(L, j.riseFromStartCm, j.riseFromStartUncCm), u],
+    ['Baricentro allo stacco sopra il punto iniziale', val(L, j.takeoffRiseCm), u],
+    ['Altezza corretta (postura bacino-piedi)', val(L, j.heightCorrCm), u],
+  ]]);
+  g.push(['Tempi', [
+    ['Tempo di volo', Number.isFinite(j.T) ? fmt.ms(j.T) : null, 'ms'],
+    ['Stacco · atterraggio', Number.isFinite(j.to) ? `${j.to.toFixed(3)} · ${j.td.toFixed(3)}` : null, 's'],
+    ['Contatto al suolo', Number.isFinite(j.contact) ? fmt.ms(j.contact) : null, 'ms'],
+    ['Tempo al decollo', Number.isFinite(j.timeToTakeoff) ? fmt.ms(j.timeToTakeoff) : null, 'ms'],
+    ['FT:CT', num(j.ftct, 2), ''],
+    ['Culmine rispetto a metà volo', Number.isFinite(j.apexAsymMs) ? `${j.apexAsymMs >= 0 ? '+' : ''}${fmt.num(j.apexAsymMs, 0)}` : null, 'ms'],
+  ]]);
+  g.push(['Indici e fasi', [
+    ['RSI (h/GCT)', num(j.rsi, 2), ''], ['RSI-flight (TV/GCT)', num(j.rsiFlight, 2), ''], ['RSI mod (h/tempo)', num(j.rsiMod, 2), ''],
+    ['Profondità del dip', Number.isFinite(j.dipCm) ? fmt.num(L(j.dipCm).v, 1) : null, u],
+    ['Spostamento di spinta', Number.isFinite(j.hpoM) ? fmt.num(L(j.hpoM * 100).v, 1) : null, u],
+    ['Pedana', Number.isFinite(j.boxCm) ? fmt.num(L(j.boxCm).v, 0) : null, u],
+  ]]);
+  g.push(['Velocità, forza e potenza', [
+    ['Velocità di stacco (stima integrata)', Number.isFinite(j.bestV0) ? `${fmt.num(j.bestV0, 2)}${Number.isFinite(j.bestV0Unc) ? ' ± ' + fmt.num(j.bestV0Unc, 2) : ''}` : null, 'm/s'],
+    ['Velocità di stacco (dal tempo di volo)', num(j.v0, 2), 'm/s'],
+    ['Velocità di stacco (dal culmine)', Number.isFinite(j.apexV0) ? `${fmt.num(j.apexV0, 2)}${Number.isFinite(j.apexV0Unc) ? ' ± ' + fmt.num(j.apexV0Unc, 2) : ''}` : null, 'm/s'],
+    ['Velocità media di spinta', num(j.vMean, 2), 'm/s'],
+    ['Forza media (Samozino)', num(j.forceN, 0), 'N'], ['Forza per kg', num(j.forceRel, 1), 'N/kg'],
+    ['Potenza media (Samozino)', num(j.powerW, 0), 'W'], ['Potenza per kg', num(j.powerRel, 1), 'W/kg'],
+    ['Potenza di picco (Sayers, eq. SJ)', num(j.sayersW, 0), 'W'], ['Sayers per kg', num(j.sayersRel, 1), 'W/kg'],
+  ]]);
+  g.push(['Baricentro all’atterraggio più basso dello stacco', [
+    ['Stima finale', val(L, j.landDeltaCm, j.landDeltaUncCm), u],
+    ['Dalla traiettoria', val(L, j.landDeltaMeasCm), u],
+    ['Dalla posizione statica', val(L, j.landDeltaStaticCm), u],
+    ['Peso traiettoria · statico', Number.isFinite(j.bestW) ? `${fmt.num(j.bestW * 100, 0)} · ${fmt.num((j.bestWStatic || 0) * 100, 0)}` : null, '%'],
+    ['Tensione tra le due misure', num(j.deltaTension, 1), '×'],
+  ]]);
+  return g.map(([t, rows]) => [t, rows.filter((r) => r[1] != null)]).filter(([, rows]) => rows.length);
+}
+
+function jumpCard(j, i, L, s, open) {
+  const lv = { alta: 'alta', media: 'media', bassa: 'bassa' }[j.confidence] || '';
+  const groups = jumpGroups(j, L, s);
+  const box = ([label, v, unit]) => h('div', { class: 'metric' }, h('span', {}, label), h('b', { class: 'num', style: { fontSize: '17px' } }, v, unit ? h('small', {}, ' ' + unit) : null));
+  const methods = Array.isArray(j.methods) && j.methods.length ? h('div', { style: { marginTop: '10px' } },
+    h('div', { class: 'sec', style: { margin: '0 0 6px' } }, 'Validazione dei metodi'),
+    j.verdict ? h('div', { class: 'small', style: { marginBottom: '6px' } }, h('b', {}, j.verdict.titolo || ''), j.verdict.why ? ' · ' + j.verdict.why : '') : null,
+    ...j.methods.map((m) => h('div', { class: 'row between small', style: { padding: '3px 0' } },
+      h('span', {}, m.nome, j.rec === m.id ? h('i', { class: 'vrec' }, 'consigliato') : null),
+      h('span', { class: 'num' }, Number.isFinite(m.cm) ? `${fmt.num(L(m.cm).v, 1)}${Number.isFinite(m.uncCm) ? ' ± ' + fmt.num(L(m.uncCm).v, 1) : ''} ${L(0).u}` : 'non disponibile', ' ', h('em', { class: 'conf ' + m.level, style: { padding: '2px 8px', fontSize: '10px', fontStyle: 'normal' } }, m.level))))) : null;
+  const flags = j.verdict?.flags?.length ? j.verdict.flags.map((t) => h('div', { class: 'qrow warn' }, h('b', {}, '!'), h('div', {}, t))) : [];
+  const issues = (j.issues || []).filter((x) => x.text).map((x) => h('div', { class: 'qrow ' + (x.level === 'bad' ? 'bad' : x.level === 'warn' ? 'warn' : 'info') }, h('b', {}, x.level === 'bad' ? '✕' : x.level === 'warn' ? '!' : 'i'), h('div', {}, x.text)));
+  const meta = [j.manual ? 'istanti corretti a mano' : null, j.ev ? 'istanti da ' + (SRC[j.ev] || j.ev) : null, j.refined ? 'rifinito (Heavy + specchio)' : null, j.apexProxy ? 'baricentro: ' + j.apexProxy : null, j.hSource ? 'altezza principale: ' + (SRC_HEIGHT[j.hSource] || j.hSource) : null].filter(Boolean).join(' · ');
+  return h('details', { class: 'acc jd', open: open ? '' : null, style: { padding: '10px 0' } },
+    h('summary', {}, h('span', { style: { fontWeight: 700 } }, `Salto ${i + 1}`, h('span', { class: 'muted num', style: { fontWeight: 500 } }, `  ·  ${fmt.num(L(j.heightCm).v, 1)} ${L(0).u}  ·  volo ${fmt.ms(j.T)} ms`)),
+      lv ? h('span', { class: 'conf ' + lv, style: { padding: '3px 9px', fontSize: '10px' } }, lv) : null, ic('chev')),
+    h('div', { style: { marginTop: '10px' } },
+      ...groups.map(([t, rows]) => h('div', { style: { marginBottom: '12px' } }, h('div', { class: 'sec', style: { margin: '0 0 6px' } }, t), h('div', { class: 'metrics' }, ...rows.map(box)))),
+      methods, ...flags, ...issues,
+      meta ? h('p', { class: 'tiny faint', style: { margin: '10px 0 0' } }, meta) : null));
+}
+
 function detail(root, app, id) {
   const S = store.s, s = S.sessions.find((x) => x.id === id);
   if (!s) { app.go('#/history'); return; }
   const L = (cm) => fmt.len(cm, S.settings.units);
   const hasContact = s.jumps.some((j) => Number.isFinite(j.contact));
+  const calTxt = s.cal ? (s.cal.mode === 'manual' ? `manuale ×${s.cal.value}` : s.cal.mode === 'auto' ? 'automatica' : s.cal.mode) : null;
+  const info = [['Frame rate', s.fps ? s.fps.toFixed(0) + ' fps' : null], ['Inquadratura', s.view || null], ['Gamba', s.leg && s.leg !== 'both' ? (s.leg === 'left' ? 'sinistra' : 'destra') : null],
+    ['Statura atleta', Number.isFinite(s.heightCm) ? s.heightCm + ' cm' : null], ['Massa', s.massKg ? s.massKg + ' kg' : null], ['Calibrazione del tempo', calTxt],
+    ['Versione dell’app', s.ver || null], ['File', s.fileName || null]].filter(([, v]) => v);
   put(root,
     h('div', { class: 'top' }, h('button', { class: 'back', onclick: () => app.go('#/history') }, ic('back')),
       h('div', { class: 'grow' }, h('div', { style: { fontWeight: 800, fontSize: '18px' } }, TEST_TYPES[s.testType]?.long || s.testType), h('div', { class: 'small muted' }, fmt.date(s.date), ' · ', s.athleteName)),
@@ -84,11 +165,15 @@ function detail(root, app, id) {
         h('div', { class: 'small muted', style: { textAlign: 'right' } }, `${s.fps?.toFixed(0) || '?'} fps`, h('br'), s.fileName || ''))),
     h('div', { class: 'card', style: { marginTop: '12px', overflowX: 'auto' } },
       h('table', { class: 't num' },
-        h('tr', {}, ...['#', L(0).u, 'Volo ms', hasContact ? 'GCT ms' : null, hasContact ? 'RSI' : 'Dip', 'Aff.'].filter(Boolean).map((x) => h('th', {}, x))),
-        ...s.jumps.map((j, i) => h('tr', {}, h('td', {}, i + 1), h('td', {}, L(j.heightCm).v.toFixed(1)), h('td', {}, fmt.ms(j.T)),
+        h('tr', {}, ...['#', L(0).u, `Volo ${L(0).u}`, 'Volo ms', hasContact ? 'GCT ms' : null, hasContact ? 'RSI' : 'Dip', 'Aff.'].filter(Boolean).map((x) => h('th', {}, x))),
+        ...s.jumps.map((j, i) => h('tr', {}, h('td', {}, i + 1), h('td', {}, L(j.heightCm).v.toFixed(1)),
+          h('td', {}, L(Number.isFinite(j.heightFlightCm) ? j.heightFlightCm : j.heightCm).v.toFixed(1)), h('td', {}, fmt.ms(j.T)),
           hasContact ? h('td', {}, fmt.ms(j.contact)) : null,
           h('td', {}, hasContact ? fmt.num(j.rsi, 2) : fmt.num(L(j.dipCm).v, 1)),
           h('td', {}, j.confidence || '')))),
     ),
+    h('div', { class: 'sec', style: { marginTop: '16px' } }, 'Dettaglio dei salti'),
+    h('div', { class: 'card' }, ...s.jumps.map((j, i) => jumpCard(j, i, L, s, s.jumps.length === 1))),
+    info.length ? h('div', { class: 'card', style: { marginTop: '12px' } }, h('div', { class: 'sec', style: { margin: '0 0 8px' } }, 'Sessione'), ...info.map(([k, v]) => h('div', { class: 'kv' }, h('span', {}, k), h('span', {}, v)))) : null,
     h('button', { class: 'btn block', style: { marginTop: '14px' }, onclick: () => downloadFile('jumplab-sessione.csv', csvRows([s])) }, ic('download'), 'Esporta CSV'));
 }
