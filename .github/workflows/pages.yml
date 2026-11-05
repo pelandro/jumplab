@@ -18,6 +18,15 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
+      - name: Controllo sintassi di tutti i moduli (se uno è rotto il deploy si ferma)
+        run: |
+          set -e
+          mkdir -p "$RUNNER_TEMP/syn"
+          for f in $(find js sw.js -name '*.js'); do
+            cp "$f" "$RUNNER_TEMP/syn/check.mjs"
+            node --check "$RUNNER_TEMP/syn/check.mjs" || { echo "::error file=$f::errore di sintassi"; exit 1; }
+          done
+          echo "Moduli controllati: $(find js sw.js -name '*.js' | wc -l)"
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3
         with:
