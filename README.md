@@ -57,6 +57,14 @@ Cloudflare Pages o Vercel come sito statico. Apri l'URL HTTPS su iPhone con Safa
 - Ripiego sul bacino quando i piedi non sono rilevati per brevi tratti.
 - Dettagli, misure e limiti in `VALIDAZIONE.md`.
 
+## Novità v4.7 (modello integrato)
+
+- **Stima integrata dell'altezza** (equivalente all'impulso-quantità di moto delle pedane): corregge il tempo di volo con la parte misurabile della traiettoria del baricentro, pesata per affidabilità (non è una media). Simulazione con verità nota: errore 0,3–0,7 cm dove il solo volo sovrastima di 3–5 cm.
+- Altezza principale = stima integrata, con il tempo di volo sempre accanto (commutabile). RSI, Samozino e velocità media la seguono.
+- Contromovimento e spinta dal baricentro a corpo intero invece che dal bacino.
+- Incertezza propagata con il modello fisico; calibrata con Monte Carlo (copertura a 2σ 95 %).
+- Audit dei tre metodi e dei parametri con numeri e limiti in `VALIDAZIONE.md` (sezione v4.7). **Nessuna verità da pedana.**
+
 ## Novità v4.6 (controllo dell'altezza da velocità di stacco)
 
 - **Baricentro a corpo intero** (tronco + braccia + gambe, de Leva) al posto del solo bacino: con braccia che oscillano il bacino sovrastimava il culmine di 2–4 cm (dimostrato in simulazione, osservato nei video frontali).

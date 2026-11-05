@@ -330,7 +330,20 @@ function trunkUpSignal(sig) {
   const raw = Float64Array.from(sig.hip, (h, i) => (isNum(h) && isNum(sig.sh[i]) ? -(0.53 * sig.sh[i] + 0.47 * h) : NaN));
   const filled = fillGaps(raw, Math.round(0.1 / sig.dt) + 1);
   const half = clamp(Math.round(0.03 / sig.dt), 1, 6);
-  return { sm: smooth(sig.t, filled, half, 2) };
+  return { sm: smooth(sig.t, filled, half, 2), vel: derivative(sig.t, filled, clamp(Math.round(0.05 / sig.dt), 2, 12), 2), filled };
+}
+
+/**
+ * Baricentro a corpo intero ("su" positivo) come serie continua sulla finestra [a, b], con velocità, per le fasi del salto (contromovimento,
+ * spinta): include braccia e gambe, che il solo bacino non vede (con le braccia in spinta il baricentro sale più del bacino). null se gli arti non
+ * sono osservabili in tutta la finestra.
+ */
+function comSignal(sig, trunk, a, b) {
+  const off = limbOffset(sig, a, b);
+  if (!off) return null;
+  const filled = Float64Array.from(trunk.filled, (v, i) => v - off[i]);
+  const half = clamp(Math.round(0.03 / sig.dt), 1, 6);
+  return { sm: smooth(sig.t, filled, half, 2), vel: derivative(sig.t, filled, clamp(Math.round(0.05 / sig.dt), 2, 12), 2) };
 }
 
 /**
@@ -509,10 +522,10 @@ export function describeJump(sig, cache, to, td, ctx = {}) {
 
   // Altezza da velocità di stacco (culmine del tronco/bacino): vedi apexEstimate. Misurato su 4 salti reali: da 0,9 a 6,6 cm sotto
   // il tempo di volo, nel verso atteso dalla letteratura (volo − velocità di stacco ≈ 2,5 cm in media, fino al 18 % con caviglie flesse).
+  const trunk = cache.trunk ?? trunkUpSignal(sig);
   let apexCm = NaN, apexUncCm = NaN, apexAsymMs = NaN, apexProxy = null, apexSpreadCm = NaN, apexV0 = NaN, apexV0Unc = NaN;
   let apexT = NaN, apexSigTa = NaN, apexRmseRel = NaN, geoCm = NaN, geoUncCm = NaN, apexInfo = null, standOf = null;
   {
-    const trunk = cache.trunk ?? trunkUpSignal(sig);
     // baricentro a corpo intero = tronco + deriva delle braccia e delle gambe; se non osservabili si ripiega su tronco e bacino
     const off = limbOffset(sig, i0, i1);
     const series = off
@@ -574,11 +587,22 @@ export function describeJump(sig, cache, to, td, ctx = {}) {
     }
   }
 
-  const ph = TEST_TYPES[ctx.testType]?.needsDip || !ctx.contact ? phaseMetrics(sig, hip, i0, to) : null;
+  // Contromovimento e spinta (dip, spostamento di spinta per Samozino) dal baricentro a corpo intero; ripiego sul tronco, poi sul bacino
+  let phSrc = hip, phName = 'bacino';
+  const needsPh = TEST_TYPES[ctx.testType]?.needsDip || !ctx.contact;
+  if (needsPh) {
+    const lo = Math.max(0, i0 - Math.round(2.5 / dt));
+    const cs = comSignal(sig, trunk, lo, i0);
+    if (cs) { phSrc = cs; phName = 'corpo intero'; }
+    else { let fin = 0; for (let i = lo; i <= i0; i++) if (isNum(trunk.sm[i])) fin++; if (fin >= 0.9 * (i0 - lo + 1)) { phSrc = trunk; phName = 'tronco'; } }
+  }
+  const ph = needsPh ? phaseMetrics(sig, phSrc, i0, to) : null;
   const j = {
     to, td, T, heightCm, v0, flightMs: T * 1000, uncT, uncCm, postureDropCm, heightCorrCm, apexCm, apexUncCm, apexAsymMs, apexProxy, apexSpreadCm, apexV0, apexV0Unc, apexT, apexSigTa, apexRmseRel, geoCm, geoUncCm,
     dt, fps: 1 / dt, fitFailed: !!ctx.fitFailed, scaleAssumed: !ctx.heightCm,
     riseFromStartCm: NaN, riseFromStartUncCm: NaN, takeoffRiseCm: NaN, ballisticCm: NaN,
+    bestCm: NaN, bestUncCm: NaN, bestV0: NaN, bestV0Unc: NaN, landDeltaCm: NaN, landDeltaUncCm: NaN, bestW: NaN, hUseCm: heightCm, hUseSource: 'volo',
+    massKg: ctx.massKg || 0, hpoM: NaN, headline: ctx.headline === 'flight' ? 'flight' : 'integrated',
     contact: ctx.contact ?? null, contactSource: ctx.contactSource ?? null,
     riseCm, gRatio, timeScaleHint, frameCm, coverage: cov,
     dipCm: NaN, timeToTakeoff: NaN, rsiMod: NaN, rsi: NaN, rsiFlight: NaN, boxCm: ctx.boxCm ?? null,
@@ -587,22 +611,16 @@ export function describeJump(sig, cache, to, td, ctx = {}) {
     ground: { pre: cache.Gpre, post: cache.Gpost },
   };
   if (isNum(j.contact) && j.contact > 0.04) {
-    j.rsi = rsiOf(hM, j.contact);
     j.rsiFlight = T / j.contact;
   }
   if (ph) {
     j.dipCm = (ph.dipFh / fhPerM) * 100;
     j.onsetT = ph.onsetT; j.bottomT = ph.bottomT;
     j.timeToTakeoff = ph.timeToTakeoff;
-    if (!isNum(j.contact)) j.rsiMod = hM / ph.timeToTakeoff;
     j.cmDetected = ph.cmDropFh / fhPerM > 0.04;
     const d = ph.pushFh / fhPerM;
-    if (ctx.massKg > 0 && d > 0.05) {
-      // Samozino et al. 2008: F = m·g·(h/hpo + 1) = m·(g + v0²/(2·hpo)); P = F·v0/2. hpo = spostamento del bacino dal punto più basso allo stacco
-      const sz = samozino(ctx.massKg, hM, d);
-      j.forceN = sz.F;
-      j.powerW = sz.P;
-    }
+    j.phaseProxy = phName;
+    j.hpoM = d; // spostamento di spinta (dal punto più basso allo stacco): serve a Samozino, calcolato in refreshDerived
     if (ctx.testType === 'sj' && j.cmDetected) add('warn', 'cm_in_sj', 'Squat jump: rilevato un contromovimento prima della spinta (fermati 2 s nella posizione bassa).', 0.1);
     if ((ctx.testType === 'cmj' || ctx.testType === 'cmj_arms') && isNum(j.dipCm) && j.dipCm < 4) add('info', 'nodip', 'Contromovimento molto piccolo: il salto sembra partire da fermo.', 0);
   }
@@ -622,11 +640,7 @@ export function describeJump(sig, cache, to, td, ctx = {}) {
   if (ctx.massKg > 0) j.sayersW = sayersPeakPower(heightCm, ctx.massKg);
   // Rapporti utili: tempo di volo / tempo di contrazione (FT:CT) e velocità media di spinta (Samozino: v = sqrt(g·h/2))
   if (isNum(j.timeToTakeoff) && j.timeToTakeoff > 0.05) j.ftct = T / j.timeToTakeoff;
-  j.vMean = Math.sqrt((G * hM) / 2);
-  if (ctx.massKg > 0) {
-    if (isNum(j.forceN)) { j.forceRel = j.forceN / ctx.massKg; j.powerRel = j.powerW / ctx.massKg; }
-    j.sayersRel = j.sayersW / ctx.massKg;
-  }
+  if (ctx.massKg > 0) j.sayersRel = j.sayersW / ctx.massKg;
   // Suolo: differenza di livello tra stacco e atterraggio (positivo = il suolo appare più in basso all'atterraggio)
   j.groundShiftCm = isNum(cache.Gpre) && isNum(cache.Gpost) ? ((cache.Gpre - cache.Gpost) / fhPerM) * 100 : NaN;
   if (isNum(j.groundShiftCm) && Math.abs(j.groundShiftCm) > 15 && ctx.testType !== 'dj' && ctx.testType !== 'rebound') {
@@ -635,8 +649,31 @@ export function describeJump(sig, cache, to, td, ctx = {}) {
   j.score = clamp(score, 0, 1);
   j.confidence = j.score >= 0.75 ? 'alta' : j.score >= 0.5 ? 'media' : 'bassa';
   j.issues = issues;
-  validateJump(j);
+  finalizeJump(j);
   return j;
+}
+
+/** Valori che dipendono dall'altezza scelta come principale (integrata o tempo di volo): RSI, forza e potenza di Samozino, velocità media. */
+export function refreshDerived(j) {
+  const useBest = Number.isFinite(j.bestCm) && j.headline !== 'flight';
+  j.hUseCm = useBest ? j.bestCm : j.heightCm;
+  j.hUseSource = useBest ? 'integrata' : 'volo';
+  const h = j.hUseCm / 100;
+  if (isNum(j.contact) && j.contact > 0.04) j.rsi = rsiOf(h, j.contact);
+  if (!isNum(j.contact) && isNum(j.timeToTakeoff) && j.timeToTakeoff > 0) j.rsiMod = h / j.timeToTakeoff;
+  j.vMean = Math.sqrt((G * h) / 2);
+  if (j.massKg > 0 && isNum(j.hpoM) && j.hpoM > 0.05) {
+    // Samozino et al. 2008: F = m·g·(h/hpo + 1) = m·(g + v0²/(2·hpo)); P = F·v0/2. hpo = spostamento del baricentro dal punto più basso allo stacco
+    const sz = samozino(j.massKg, h, j.hpoM);
+    j.forceN = sz.F; j.powerW = sz.P; j.forceRel = sz.F / j.massKg; j.powerRel = sz.P / j.massKg;
+  }
+  return j;
+}
+
+/** Validazione ibrida, stima integrata e valori derivati: da richiamare ogni volta che istanti o incertezze cambiano. */
+export function finalizeJump(j) {
+  validateJump(j);
+  return refreshDerived(j);
 }
 
 /**
@@ -691,7 +728,7 @@ export function remeasure(result, to, td, opts = {}, contact = null) {
 /** Riepilogo per serie di rimbalzi. */
 export function summarizeSeries(jumps) {
   const withC = jumps.filter((j) => isNum(j.contact) && j.contact > 0);
-  const hs = jumps.map((j) => j.heightCm), mh = mean(hs);
+  const hs = jumps.map((j) => (isNum(j.hUseCm) ? j.hUseCm : j.heightCm)), mh = mean(hs);
   const sd = hs.length > 1 ? Math.sqrt(hs.reduce((a, x) => a + (x - mh) ** 2, 0) / (hs.length - 1)) : NaN;
   const k = Math.max(1, Math.floor(hs.length / 3));
   const first = mean(hs.slice(0, k)), lastM = mean(hs.slice(-k));
@@ -700,8 +737,8 @@ export function summarizeSeries(jumps) {
     // calo di altezza tra il primo e l'ultimo terzo della serie (indice di fatica), solo con almeno 4 salti
     declinePct: hs.length >= 4 ? ((first - lastM) / first) * 100 : NaN,
     count: jumps.length,
-    bestCm: Math.max(...jumps.map((j) => j.heightCm)),
-    meanCm: mean(jumps.map((j) => j.heightCm)),
+    bestCm: Math.max(...jumps.map((j) => (isNum(j.hUseCm) ? j.hUseCm : j.heightCm))),
+    meanCm: mean(jumps.map((j) => (isNum(j.hUseCm) ? j.hUseCm : j.heightCm))),
     meanContact: mean(withC.map((j) => j.contact)),
     meanRsi: mean(withC.map((j) => j.rsi)),
     bestRsi: withC.length ? Math.max(...withC.map((j) => j.rsi)) : NaN,

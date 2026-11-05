@@ -13,6 +13,7 @@ rilevamento e misura, <b>non</b> la qualità del modello di postura su video rea
 <div id="out">In esecuzione…</div>
 <script type="module">
 import { validateJump, flagSeries } from '../js/engine/validate.js';
+import { integrate, PRIOR } from '../js/engine/fusion.js';
 import { analyze, remeasure, apexEstimate, summarizeSeries, heightFromFlight, samozino, sayersPeakPower, rsiOf } from '../js/engine/jumps.js';
 import { detectView, assessRecording } from '../js/engine/quality.js';
 import { flowEvents } from '../js/engine/footflow.js';
@@ -212,17 +213,18 @@ for (const [lab, up] of [['braccia orizzontali → giù', Math.PI / 2], ['bracci
 {
   const base = () => ({ T: 0.6, dt: 1 / 240, fps: 240, heightCm: 44, uncCm: 1, uncT: 0.006, apexCm: 40, apexUncCm: 1.5, apexAsymMs: -15, apexT: 0.28, apexSigTa: 0.004, apexProxy: 'corpo intero', apexSpreadCm: 1, apexRmseRel: 0.003, geoCm: 41, geoUncCm: 4, flow: { pixelBoth: true, src: { to: 'pixel', td: 'pixel' } }, score: 0.9, issues: [] });
   const st = (j) => validateJump(j).verdict;
+  const mid = (j, id) => j.methods.find((m) => m.id === id);
   const ck = (name, ok) => { if (!ok) totalFail++; fRows.push(`<tr><td>${name}</td><td></td><td></td><td class="${ok ? 'ok' : 'bad'}">${ok ? 'OK' : 'KO'}</td></tr>`); };
-  { const j = validateJump(base()); ck('Validazione: salto coerente → «coerenti», consigliato il tempo di volo, nessun avviso', j.verdict.status === 'coerenti' && j.verdict.recommended === 'volo' && !j.issues.some((x) => x.code.startsWith('val_'))); ck('Validazione: pixel a 240 fps → volo «alta»; corpo intero → parabola «alta»', j.methods[0].level === 'alta' && j.methods[2].level === 'alta'); }
+  { const j = validateJump(base()); ck('Validazione: salto coerente → «coerenti», consigliata la stima integrata, nessun avviso', j.verdict.status === 'coerenti' && j.verdict.recommended === 'integrato' && !j.issues.some((x) => x.code.startsWith('val_'))); ck('Validazione: pixel a 240 fps → volo «alta»; corpo intero → parabola «alta»', mid(j, 'volo').level === 'alta' && mid(j, 'parabola').level === 'alta'); }
   { const j = base(); j.apexCm = 50; ck('Validazione: parabola più alta del volo → incoerente, nessun metodo consigliato', st(j).status === 'incoerenti' && st(j).recommended === null); }
   { const j = base(); j.apexCm = 31; ck('Validazione: deficit del 30 % → incoerente', st(j).status === 'incoerenti'); }
   { const j = base(); j.apexAsymMs = -55; ck('Validazione: culmine a −55 ms da metà volo → istanti sospetti', st(j).flags.some((f) => f.code === 'asimmetria') && st(j).status === 'incoerenti'); }
-  { const j = base(); j.geoCm = 58; const v = st(j); ck('Validazione: scala incoerente → «parziale», flag scala, i metodi sul tempo restano', v.status === 'parziale' && v.flags.some((f) => f.code === 'scala') && v.recommended === 'volo' && j.methods[1].level !== 'alta'); }
-  { const j = base(); j.apexCm = NaN; j.apexT = NaN; j.geoCm = NaN; const v = st(j); ck('Validazione: baricentro non adattabile → solo volo, dichiarato', v.status === 'parziale' && v.flags.some((f) => f.code === 'solo_volo') && j.methods[2].nonDisponibile); }
-  { const j = base(); j.flow = null; const v = st(j); ck('Validazione: istanti dai landmark a 240 fps → volo e parabola non «alta»', j.methods[0].level !== 'alta' && j.methods[2].level !== 'alta'); }
-  { const j = base(); j.flow = { pixelBoth: false, src: { to: 'pixel', td: 'landmark' } }; st(j); ck('Validazione: stacco dai pixel, atterraggio dai landmark → il volo perde, la parabola no', j.methods[0].score < j.methods[2].score); }
-  { const j = base(); j.manual = true; j.flow = null; st(j); ck('Validazione: istanti manuali → motivo «scelti a mano», nessuna penalità di fonte', j.methods[0].pro.some((t) => /a mano/.test(t)) && j.methods[0].level === 'alta'); }
-  { const j = base(); j.scaleAssumed = true; st(j); ck('Validazione: altezza dell\'atleta non impostata → metodo spaziale penalizzato con motivo', j.methods[1].contro.some((t) => /scala presunta/.test(t)) && j.methods[1].level !== 'alta'); }
+  { const j = base(); j.geoCm = 58; const v = st(j); ck('Validazione: scala incoerente → «parziale», flag scala, i metodi sul tempo restano', v.status === 'parziale' && v.flags.some((f) => f.code === 'scala') && v.recommended === 'integrato' && mid(j, 'baricentro').level !== 'alta'); }
+  { const j = base(); j.apexCm = NaN; j.apexT = NaN; j.geoCm = NaN; const v = st(j); ck('Validazione: baricentro non adattabile → solo volo, dichiarato', v.status === 'parziale' && v.flags.some((f) => f.code === 'solo_volo') && mid(j, 'parabola').nonDisponibile); }
+  { const j = base(); j.flow = null; const v = st(j); ck('Validazione: istanti dai landmark a 240 fps → volo e parabola non «alta»', mid(j, 'volo').level !== 'alta' && mid(j, 'parabola').level !== 'alta'); }
+  { const j = base(); j.flow = { pixelBoth: false, src: { to: 'pixel', td: 'landmark' } }; st(j); ck('Validazione: stacco dai pixel, atterraggio dai landmark → il volo perde, la parabola no', mid(j, 'volo').score < mid(j, 'parabola').score); }
+  { const j = base(); j.manual = true; j.flow = null; st(j); ck('Validazione: istanti manuali → motivo «scelti a mano», nessuna penalità di fonte', mid(j, 'volo').pro.some((t) => /a mano/.test(t)) && mid(j, 'volo').level === 'alta'); }
+  { const j = base(); j.scaleAssumed = true; st(j); ck('Validazione: altezza dell\'atleta non impostata → metodo spaziale penalizzato con motivo', mid(j, 'baricentro').contro.some((t) => /scala presunta/.test(t)) && mid(j, 'baricentro').level !== 'alta'); }
   { const j = base(); validateJump(j); const s1 = j.score, n1 = j.issues.length; validateJump(j); validateJump(j); ck('Validazione: idempotente (punteggio e avvisi non si accumulano)', Math.abs(j.score - s1) < 1e-12 && j.issues.length === n1); }
   { const j = base(); j.apexCm = 50; validateJump(j); const bad = j.score; j.apexCm = 40; validateJump(j); ck('Validazione: la penalità sparisce quando il salto torna coerente', j.score > bad && !j.issues.some((x) => x.code.startsWith('val_'))); }
   { const mk = (hs) => hs.map((h) => ({ heightCm: h, issues: [] })); const a = mk([40, 41, 39, 40, 42, 12]); flagSeries(a); const b = mk([40, 41, 39, 40]); flagSeries(b); const c = mk([30, 32, 31, 29, 33, 31]); flagSeries(c);
@@ -247,6 +249,80 @@ for (const [lab, up] of [['braccia orizzontali → giù', Math.PI / 2], ['bracci
     chk(`Baricentro allo stacco sopra la posizione iniziale (${lab}): vero +${up0.toFixed(1)} cm`, j0.takeoffRiseCm, up0, 1.5, 'cm');
     chk(`Spostamento massimo dal punto iniziale (${lab}): vero ${(up0 + hBal).toFixed(1)} cm`, j0.riseFromStartCm, up0 + hBal, 1.5, 'cm');
   }
+}
+
+// ---- Stima integrata (fusion.js): formule con valori noti ----
+{
+  const ck = (name, ok) => { if (!ok) totalFail++; fRows.push(`<tr><td>${name}</td><td></td><td></td><td class="${ok ? 'ok' : 'bad'}">${ok ? 'OK' : 'KO'}</td></tr>`); };
+  // misura precisa (σ piccole): prevale la misura, Δ* ≈ Δ̂; con Δ̂ = 0 coincide con il tempo di volo
+  const z = integrate({ T: 0.6, uncT: 0.0001, apexAsymMs: 0, apexSigTa: 0.0001 });
+  chk('Integrata con Δ misurato 0 e misura precisa = tempo di volo', z.cm, (g * 0.36 / 8) * 100, 0.3, 'cm');
+  // Δ misurato 10 cm (asimmetria −10/(g·T) s) con misura precisa: v0 = g·T/2 − Δ/T ⇒ h = (g·0.3 − 0.1/0.6)²/(2g)
+  const T = 0.6, dM = 0.10, asym = -(dM / (g * T)) * 1000;
+  const a = integrate({ T, uncT: 0.0001, apexAsymMs: asym, apexSigTa: 0.0001 });
+  chk('Integrata con Δ = 10 cm misurato (misura precisa)', a.cm, ((g * T / 2 - 0.10 / T) ** 2 / (2 * g)) * 100, 0.4, 'cm');
+  chk('Peso della misura ≈ 1 quando la misura è precisa', a.wMeas, 1, 0.01);
+  // misura molto incerta: torna alla prior (Δ = 5 cm)
+  const b = integrate({ T, uncT: 0.05, apexAsymMs: asym, apexSigTa: 0.05 });
+  chk('Con misura incertissima Δ* ≈ prior (5 cm)', b.deltaCm, PRIOR.muM * 100, 0.8, 'cm');
+  chk('Il peso della misura cala con l\'incertezza', Math.min(b.wMeas, 0.1), b.wMeas, 1e-9);
+  ck('Integrata: incertezza finita, v0 e altezza coerenti (h = v0²/2g)', Math.abs(a.cm - (a.v0 * a.v0 / (2 * g)) * 100) < 1e-9 && a.uncCm > 0 && Number.isFinite(a.uncCm));
+  ck('Integrata: nessun dato del baricentro → null', integrate({ T: 0.5, uncT: 0.005, apexAsymMs: NaN, apexSigTa: NaN }) === null);
+}
+
+// ---- Stima integrata: Monte Carlo (errore e copertura) per popolazioni diverse di atterraggio flesso (Δ) ----
+{
+  const rr = rng(4242), ck = (name, ok) => { if (!ok) totalFail++; fRows.push(`<tr><td>${name}</td><td></td><td></td><td class="${ok ? 'ok' : 'bad'}">${ok ? 'OK' : 'KO'}</td></tr>`); };
+  const run = (mu, sg, sEv, sys) => {
+    const E = { ft: [], ap: [], in: [] }; let cov = 0, n = 0;
+    for (let q = 0; q < 300; q++) {
+      const dt = 1 / 120, delta = Math.max(0, mu + rr.gauss() * sg), v0 = 2.4 + rr.u() * 1.3, to = 1 + rr.u() * dt, T = (v0 + Math.sqrt(v0 * v0 + 2 * g * delta)) / g, td = to + T;
+      const t = Array.from({ length: Math.floor((T + 1.2) / dt) }, (_, i) => to - 0.6 + i * dt);
+      const y = (tt) => (tt < to ? 0 : tt > td ? -delta : v0 * (tt - to) - 0.5 * g * (tt - to) ** 2);
+      const mk = (b) => Float64Array.from(t, (tt) => y(tt) + (tt >= to && tt <= td ? b * ((tt - to) / T - 0.5) : 0) + rr.gauss() * 0.01);
+      const toE = to + rr.gauss() * sEv, tdE = td + rr.gauss() * sEv, uncT = sEv * Math.SQRT2;
+      const ae = apexEstimate({ t, dt, to: toE, td: tdE, uncT, series: [{ name: 'corpo intero', sm: mk(sys) }, { name: 'tronco', sm: mk(0) }, { name: 'bacino', sm: mk(-sys) }] });
+      if (!ae) continue;
+      const fu = integrate({ T: tdE - toE, uncT, apexAsymMs: ae.asymMs, apexSigTa: ae.sigTa });
+      if (!fu) continue;
+      const hT = (v0 * v0) / (2 * g) * 100; n++;
+      E.ft.push(((g * (tdE - toE) ** 2) / 8) * 100 - hT); E.ap.push(ae.cm - hT); E.in.push(fu.cm - hT);
+      if (Math.abs(fu.cm - hT) <= 2 * fu.uncCm) cov++;
+    }
+    const rm = (a) => Math.sqrt(a.reduce((x, y) => x + y * y, 0) / a.length), me = (a) => a.reduce((x, y) => x + y, 0) / a.length;
+    return { n, bias: me(E.in), rmse: rm(E.in), rmseFT: rm(E.ft), rmseAp: rm(E.ap), cover2: (100 * cov) / n };
+  };
+  const typ = run(0.05, 0.03, 0.005, 0.02);
+  chk('Integrata (Monte Carlo, Δ ~ N(5,3) cm, istanti 5 ms, deriva proxy 2 cm): bias', typ.bias, 0, 0.8, 'cm');
+  ck(`Integrata: RMSE ${typ.rmse.toFixed(2)} cm ≤ 0,6 × RMSE del volo (${typ.rmseFT.toFixed(2)} cm) e ≤ RMSE dell'apice (${typ.rmseAp.toFixed(2)} cm) + 0,1`, typ.rmse <= 0.6 * typ.rmseFT && typ.rmse <= typ.rmseAp + 0.1);
+  chk('Integrata (Monte Carlo): copertura dell\'incertezza a 2σ (≥ 90 %)', Math.min(typ.cover2, 95), 95, 5, '%');
+  const rigid = run(0.01, 0.01, 0.005, 0.0), flex = run(0.10, 0.03, 0.005, 0.0);
+  ck(`Integrata con prior sbagliata (atterraggio rigido: bias ${rigid.bias.toFixed(2)} cm, molto flesso: ${flex.bias.toFixed(2)} cm): errore ≤ 2,5 cm`, Math.abs(rigid.bias) <= 2.5 && Math.abs(flex.bias) <= 2.5 && rigid.rmse <= 2.5 && flex.rmse <= 2.5);
+}
+
+// ---- Stima integrata sull'intera pipeline, con atterraggio più basso dello stacco (verità nota) ----
+{
+  const ck = (name, ok) => { if (!ok) totalFail++; fRows.push(`<tr><td>${name}</td><td></td><td></td><td class="${ok ? 'ok' : 'bad'}">${ok ? 'OK' : 'KO'}</td></tr>`); };
+  for (const D of [0, 0.05, 0.10]) {
+    const eFT = [], eAp = [], eIn = []; let n = 0;
+    for (const seed of [1, 2, 3]) {
+      const scn = buildScenario('cmj', { T: 0.55, landDrop: D }); const tr = scn.truth.find((x) => x.to !== undefined);
+      const res = analyze(renderTrack(scn, { fps: 240, seed: seed * 5, noise: 0.0025 }), { testType: 'cmj', heightCm: 175 });
+      const j = res.jumps[0]; if (!j || !Number.isFinite(j.bestCm)) continue;
+      n++; eFT.push(j.heightCm - tr.h * 100); eAp.push(j.apexCm - tr.h * 100); eIn.push(j.bestCm - tr.h * 100);
+    }
+    const mean = (a) => a.reduce((x, y) => x + y, 0) / a.length;
+    chk(`Pipeline (Δ vero ${(D * 100).toFixed(0)} cm, ${n} salti): errore della stima integrata sull'altezza balistica`, mean(eIn), 0, 1.5, 'cm');
+    if (D >= 0.05) ck(`Pipeline (Δ ${(D * 100).toFixed(0)} cm): il solo volo sovrastima di ${mean(eFT).toFixed(1)} cm, l'integrata no`, mean(eFT) > 2 && Math.abs(mean(eIn)) < 1.5);
+  }
+  // valori derivati: RSI, Samozino e velocità media seguono l'altezza scelta
+  const scn = buildScenario('cmj', { T: 0.55, landDrop: 0.06 }); const tr = scn.truth.find((x) => x.to !== undefined);
+  const res = analyze(renderTrack(scn, { fps: 240, seed: 9, noise: 0.0025 }), { testType: 'cmj', heightCm: 175, massKg: 75 });
+  const ji = remeasure(res, tr.to, tr.td, { heightCm: 175, massKg: 75, uncT: 0.004, testType: 'cmj' });
+  const jf = remeasure(res, tr.to, tr.td, { heightCm: 175, massKg: 75, uncT: 0.004, testType: 'cmj', headline: 'flight' });
+  ck('Altezza principale: integrata < tempo di volo con atterraggio flesso, e viceversa con l\'impostazione «tempo di volo»', ji.hUseCm < ji.heightCm - 1 && Math.abs(jf.hUseCm - jf.heightCm) < 1e-9 && ji.hUseSource === 'integrata' && jf.hUseSource === 'volo');
+  chk('Velocità media di spinta: √(g·h/2) con l\'altezza scelta', ji.vMean, Math.sqrt((g * ji.hUseCm / 100) / 2), 1e-9, 'm/s');
+  ck('Samozino: la forza segue l\'altezza scelta (altezza minore ⇒ forza minore a parità di spinta)', Number.isFinite(ji.forceN) && Number.isFinite(jf.forceN) && ji.forceN < jf.forceN);
 }
 
 // ---- Riconoscimento dell'inquadratura (scheletro stilizzato) ----

@@ -2,11 +2,11 @@
 
 const KEY = 'jumplab.v4';
 // Da aggiornare ad ogni modifica del codice: serve a capire a colpo d'occhio se l'app è aggiornata.
-export const VERSION = '4.6.0';
+export const VERSION = '4.7.0';
 export const BUILD = '2026-11-04';
 
 const DEFAULTS = () => ({
-  settings: { units: 'cm', model: 'full', delegate: 'auto', skeleton: true, refine: true },
+  settings: { units: 'cm', model: 'full', delegate: 'auto', skeleton: true, refine: true, headline: 'integrated' },
   athletes: [{ id: 'a1', name: 'Io', heightCm: 175, massKg: 0 }],
   currentAthlete: 'a1',
   testType: 'cmj',

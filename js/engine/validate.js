@@ -9,6 +9,8 @@
 // motivi, si segnalano le incoerenze e si indica quale usare. Nessuna soglia è stata calibrata contro una pedana: derivano dalla letteratura
 // (volo − velocità di stacco ≈ 2,5 cm, fino ~18 %) e dai 4 salti reali analizzati (curvatura/g = 0,98–1,14 con la scala dell'app).
 
+import { integrate } from './fusion.js';
+
 const G = 9.80665;
 const fin = Number.isFinite;
 const clamp01 = (x) => Math.max(0, Math.min(1, x));
@@ -107,6 +109,19 @@ function comMethods(j) {
   return out;
 }
 
+function integratedMethod(j, fu, F, P) {
+  // La stima integrata poggia su due catene di evidenza: gli istanti (tempo di volo) e il baricentro (correzione Δ). Il livello segue la catena
+  // più debole in proporzione al peso della misura; la parte che si appoggia alla prior non può superare 0,7 (assunzione di popolazione).
+  const m = { id: 'integrato', nome: 'Stima integrata', cm: fu.cm, uncCm: fu.uncCm, v0: fu.v0, v0Unc: fu.v0Unc, pro: [], contro: [] };
+  m.score = clamp01(fu.wMeas * Math.min(F.score, P.score) + (1 - fu.wMeas) * Math.min(F.score, 0.7));
+  m.level = levelOf(m.score);
+  m.pro.push(`tempo di volo corretto con l'atterraggio ${fu.deltaCm.toFixed(1)} ± ${fu.deltaUncCm.toFixed(1)} cm più basso dello stacco (misurato ${fu.deltaMeasCm.toFixed(1)} ± ${fu.deltaMeasUncCm.toFixed(1)} cm)`);
+  m.pro.push(`peso della misura dal baricentro ${(fu.wMeas * 100).toFixed(0)} %, della prior di popolazione ${((1 - fu.wMeas) * 100).toFixed(0)} %`);
+  for (const t of F.contro) m.contro.push('istanti: ' + t);
+  for (const t of P.contro) if (!/^prospettiva/.test(t)) m.contro.push('baricentro: ' + t);
+  return m;
+}
+
 /**
  * Valida un salto: riempie j.methods, j.verdict e adegua punteggio/avvisi. Idempotente (si può richiamare dopo i pixel, la rifinitura
  * o una correzione manuale: ricalcola le incertezze che dipendono da j.uncT e sostituisce i propri avvisi).
@@ -119,9 +134,14 @@ export function validateJump(j) {
     j.apexV0Unc = G * sT;
     if (fin(j.geoCm)) j.geoUncCm = j.geoCm * Math.hypot(0.1, (2 * sT) / j.apexT);
   }
+  // stima integrata (fusion.js): ricalcolata qui perché dipende dall'incertezza sugli istanti, che cambia dopo i pixel e la rifinitura
+  const fu = integrate({ T: j.T, uncT: j.uncT, apexAsymMs: j.apexAsymMs, apexSigTa: j.apexSigTa });
+  j.bestCm = fu ? fu.cm : NaN; j.bestUncCm = fu ? fu.uncCm : NaN; j.bestV0 = fu ? fu.v0 : NaN; j.bestV0Unc = fu ? fu.v0Unc : NaN;
+  j.landDeltaCm = fu ? fu.deltaCm : NaN; j.landDeltaUncCm = fu ? fu.deltaUncCm : NaN; j.landDeltaMeasCm = fu ? fu.deltaMeasCm : NaN; j.bestW = fu ? fu.wMeas : NaN;
   const F = flightMethod(j);
   const [Gm, P] = comMethods(j);
-  const methods = [F, Gm, P];
+  const I = fu ? integratedMethod(j, fu, F, P) : null;
+  const methods = I ? [I, F, Gm, P] : [F, Gm, P];
   const flags = [];
   const hF = j.heightCm, hP = j.apexCm, hG = j.geoCm;
   const okP = fin(hP) && !P.nonDisponibile, okG = fin(hG) && !Gm.nonDisponibile;
@@ -172,13 +192,15 @@ export function validateJump(j) {
     recommended = rank[P.level] > rank[F.level] ? 'parabola' : 'volo';
     why = recommended === 'volo' ? 'metodo standard, confermato dagli altri' : 'livello di affidabilità superiore al tempo di volo, confermato dagli altri';
   }
+  if (I && status !== 'incoerenti') { recommended = 'integrato'; why = 'combina il tempo di volo e la traiettoria del baricentro con pesi proporzionali all\'affidabilità (non è una media)'; }
   const titolo = status === 'coerenti' ? 'I metodi concordano' : status === 'parziale' ? 'Concordanza parziale' : 'Misura da verificare';
   j.methods = methods;
   j.verdict = { status, titolo, recommended, why, flags, okFP, okPG, okFG };
 
   // distinzione: altezza balistica (sopra la posizione di stacco) / spostamento rispetto alla posizione iniziale
-  j.ballisticCm = okP ? hP : hF;
-  j.ballisticSource = okP ? 'parabola' : 'volo';
+  j.ballisticCm = fu ? fu.cm : okP ? hP : hF;
+  j.ballisticSource = fu ? 'integrata' : okP ? 'parabola' : 'volo';
+  if (fin(j.takeoffRiseCm) && fin(j.ballisticCm)) { j.riseFromStartCm = j.takeoffRiseCm + j.ballisticCm; j.riseFromStartUncCm = Math.hypot(0.1 * Math.abs(j.takeoffRiseCm), fu ? fu.uncCm : j.apexUncCm || 0); }
 
   // punteggio complessivo e avvisi: una sola penalità di validazione alla volta
   const pen = status === 'incoerenti' ? 0.3 : status === 'parziale' && okP ? 0.1 : 0;
@@ -195,21 +217,22 @@ export function validateJump(j) {
  * Anomalie dentro una serie (≥ 4 salti): altezza lontana dalla mediana in modo robusto. Segna j.seriesOutlier; non esclude nulla.
  */
 export function flagSeries(jumps) {
-  const act = jumps.filter((j) => !j.excluded && fin(j.heightCm));
+  const hOf = (j) => (fin(j.hUseCm) ? j.hUseCm : j.heightCm);
+  const act = jumps.filter((j) => !j.excluded && fin(hOf(j)));
   for (const j of jumps) {
     j.seriesOutlier = null;
     j.issues = (j.issues || []).filter((x) => x.code !== 'val_serie');
   }
   if (act.length < 4) return;
-  const s = act.map((j) => j.heightCm).sort((a, b) => a - b);
+  const s = act.map(hOf).sort((a, b) => a - b);
   const med = s[s.length >> 1];
-  const mad = [...act.map((j) => Math.abs(j.heightCm - med))].sort((a, b) => a - b)[act.length >> 1];
+  const mad = [...act.map((j) => Math.abs(hOf(j) - med))].sort((a, b) => a - b)[act.length >> 1];
   const sig = Math.max(1.4826 * mad, 0.03 * med);
   for (const j of act) {
-    const z = (j.heightCm - med) / sig;
-    if (Math.abs(z) > 3.5 && Math.abs(j.heightCm - med) > 0.2 * med) {
+    const z = (hOf(j) - med) / sig;
+    if (Math.abs(z) > 3.5 && Math.abs(hOf(j) - med) > 0.2 * med) {
       j.seriesOutlier = { z, medianCm: med };
-      j.issues.push({ level: 'warn', code: 'val_serie', text: `Altezza ${Math.abs(j.heightCm - med).toFixed(1)} cm ${j.heightCm > med ? 'sopra' : 'sotto'} la mediana della serie (${med.toFixed(1)} cm): salto anomalo o istanti da correggere.` });
+      j.issues.push({ level: 'warn', code: 'val_serie', text: `Altezza ${Math.abs(hOf(j) - med).toFixed(1)} cm ${hOf(j) > med ? 'sopra' : 'sotto'} la mediana della serie (${med.toFixed(1)} cm): salto anomalo o istanti da correggere.` });
     }
   }
 }

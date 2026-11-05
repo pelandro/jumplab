@@ -38,15 +38,17 @@ export function buildScenario(kind, p = {}) {
   const H0 = 0.95, L = 1.0; // altezza bacino in piedi, lunghezza gamba estesa
   const truth = [];
   const segs = []; // {t0,t1,hip(t),foot:'contact'|'flight', info}
-  const T = p.T ?? 0.5, v0 = (g * T) / 2;
+  const T = p.T ?? 0.5, D0 = p.landDrop ?? 0, v0 = (g * T) / 2 - D0 / T; // landDrop (m): baricentro all'atterraggio più basso dello stacco; v0 = g·T/2 − Δ/T
   const Hto = L + 0.0;
   const flightSeg = (to, T_) => {
-    const v = (g * T_) / 2;
-    truth.push({ to, td: to + T_ });
+    const v = (g * T_) / 2 - D0 / T_;
+    truth.push({ to, td: to + T_, landDrop: D0, h: (v * v) / (2 * g) });
     return {
       t0: to, t1: to + T_, flight: true,
       hip: (t) => Hto + v * (t - to) - 0.5 * g * (t - to) ** 2,
       tuck: (t) => 0.13 * Math.sin((Math.PI * (t - to)) / T_) ** 2,
+      // le gambe si flettono in volo di Δ in tutto: al contatto il piede è a terra anche se il bacino è più basso
+      legShort: (t) => { const u = Math.min(1, Math.max(0, (t - to) / T_)); return D0 * u * u * (3 - 2 * u); },
     };
   };
   if (kind === 'cmj' || kind === 'sj') {
@@ -59,7 +61,7 @@ export function buildScenario(kind, p = {}) {
     const f = flightSeg(to, T);
     segs.push(f);
     const td = to + T;
-    const k2 = [[td, Hto, -v0], [td + 0.25, H0 - 0.25, 0], [td + 0.8, H0, 0], [td + 3, H0, 0]];
+    const k2 = [[td, Hto - D0, v0 - g * T], [td + 0.25, H0 - 0.25, 0], [td + 0.8, H0, 0], [td + 3, H0, 0]];
     segs.push({ t0: td, t1: td + 3, hip: (t) => hermite(k2, t), flight: false });
   } else if (kind === 'dj') {
     const hb = p.box ?? 0.4, c = p.contact ?? 0.2, ts = 0.9;
@@ -108,7 +110,7 @@ export function buildScenario(kind, p = {}) {
     const hip = s.hip(t);
     let toe, heel;
     if (s.flight) {
-      const leg = L - s.tuck(t);
+      const leg = L - s.tuck(t) - (s.legShort ? s.legShort(t) : 0);
       toe = hip - leg; heel = toe + 0.05;
     } else if (s.fall) {
       toe = s.foot(t); heel = toe + 0.04;

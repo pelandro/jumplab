@@ -6,9 +6,9 @@
 
 import { openVideo } from './video.js';
 import { pose, PoseEngine } from './pose.js';
-import { analyze, remeasure } from './jumps.js';
+import { analyze, remeasure, finalizeJump } from './jumps.js';
 import { assessRecording } from './quality.js';
-import { validateJump, flagSeries } from './validate.js';
+import { flagSeries } from './validate.js';
 import { flowEventsRobust } from './footflow.js';
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
@@ -240,7 +240,7 @@ export async function runAnalysis(file, opts, cb = {}) {
   }
   src.dispose();
   stage('analyze', 0.8, 'Calcolo stacchi e atterraggi…');
-  const params = { cal: opts.cal, testType: opts.testType, heightCm: opts.heightCm, massKg: opts.massKg, boxCm: opts.boxCm, leg: opts.leg };
+  const params = { cal: opts.cal, testType: opts.testType, heightCm: opts.heightCm, massKg: opts.massKg, boxCm: opts.boxCm, leg: opts.leg, headline: opts.headline };
   reanalyze(session, params);
   if (opts.refine !== false && session.jumps.some((j) => !j.manual)) {
     try { await refineEvents(session, opts, { stage, onPreview: cb.onPreview, log }, aborted); }
@@ -449,7 +449,7 @@ function applyFlowInfo(session) {
 /** Validazione ibrida (volo / baricentro nello spazio / parabola) dopo che pixel e rifinitura hanno aggiornato istanti e incertezze; anomalie di serie. */
 export function finalizeValidation(session) {
   session.jumps = session.results.flatMap((r) => r.jumps);
-  for (const j of session.jumps) validateJump(j);
+  for (const j of session.jumps) finalizeJump(j);
   flagSeries(session.jumps);
 }
 
@@ -485,6 +485,7 @@ export function reanalyze(session, p = {}) {
   session.params = {
     testType: p.testType ?? session.opts.testType, heightCm: p.heightCm ?? session.opts.heightCm,
     massKg: p.massKg ?? session.opts.massKg, boxCm: p.boxCm ?? session.opts.boxCm, leg: p.leg ?? session.opts.leg,
+    headline: p.headline ?? session.opts.headline,
   };
   session.results = [];
   let id = 1;
@@ -525,13 +526,13 @@ export function editJump(session, jump, newTo, newTd, mark = true) {
   const nj = remeasure(res, newTo, newTd, params, contact);
   const keep = { id: jump.id, win: jump.win, contactStart: jump.contactStart, contactSource: jump.contactSource, excluded: jump.excluded, ground: nj.ground };
   Object.assign(jump, nj, keep, { manual: mark });
-  validateJump(jump);
+  finalizeJump(jump);
   const next = res.jumps.find((j) => j !== jump && j.contactStart != null && Math.abs(j.contactStart - oldTd) < 1e-6);
   if (next) {
     next.contactStart = newTd;
     const nn = remeasure(res, next.to, next.td, params, next.to - newTd);
     Object.assign(next, nn, { id: next.id, win: next.win, contactStart: newTd, contactSource: next.contactSource, excluded: next.excluded, manual: next.manual });
-    validateJump(next);
+    finalizeJump(next);
   }
   if (mark) flagSeries(session.jumps);
   return jump;
