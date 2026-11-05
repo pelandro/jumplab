@@ -327,7 +327,7 @@ Cosa è stato provato in questa versione, con esito (inclusi i risultati negativ
 | **Parte del piede seguita** (punta/tallone, spostamento di 1–3 px del punto iniziale) | sposta gli eventi di **6–14 ms** | resta un errore sistematico di ~±7 ms, incluso nell'incertezza dichiarata |
 | Decimazione dei fotogrammi sui video veri (240/120 → 120, 60, 40, 30 fps equivalenti) | volo stabile entro pochi ms fino a ~60 fps equivalenti; sotto, l'evento viene scartato o cade sui landmark | invariato (soglia 25 fps, intervallo ≤ 30 ms) |
 
-### Nuovo: altezza da velocità di stacco (apice del baricentro)
+### Nuovo: altezza da velocità di stacco (apice del baricentro) — *poi migliorata nella v4.6, vedi sotto*
 Seconda stima dell'altezza, indipendente dalla posizione di atterraggio: dal bacino si ricava l'istante dell'apice (vertice della parabola, finestra centrale del volo) e si calcola `h = g·(t_apice − t_stacco)²/2`. Non dipende dalla scala in pixel né dal fatto che si atterri più flessi (che gonfia l'altezza da tempo di volo del 2–11 % in letteratura).
 - **Test sintetici** (CMJ con fisica balistica, 12 salti per frequenza): rapporto apice/volo **1,010 (60 fps), 1,006 (120 fps), 0,999 (240 fps)**; asimmetria dell'apice 2,6 / 1,0 / 0,7 ms. Fa parte della suite (`tests/index.html`).
 - **Video reali** (apice − volo): −0,9, −2,8, −3,2, −6,6 cm sui quattro salti dell'esperimento offline. App completa su IMG_0181 (60 fps): volo 34,9 cm, apice **32,0 ± 2,7 cm** (−2,9 cm, asimmetria −11 ms).
@@ -343,4 +343,82 @@ Seconda stima dell'altezza, indipendente dalla posizione di atterraggio: dal bac
 - 2 atleti, 5 salti reali: nessuna verità da pedana, quindi **errore assoluto non dimostrato**; solo ripetibilità e coerenza fisica.
 - Riferimento di letteratura per un metodo da video a 120 fps: MAE 17 ms sul volo, 3,0 cm sull'altezza (Chiu 2025). Non affermiamo di fare meglio.
 - Errore sistematico del punto seguito sul piede ~±7 ms (≈ ±1 cm); stacco laterale meno ripetibile (±7–8 ms) di quello frontale.
+
+## v4.6 — altezza da velocità di stacco: baricentro a corpo intero e incertezza misurata
+
+Richiesta: migliorare il calcolo della velocità di stacco usato come controllo. Prima (v4.5) si adattava una parabola al **solo bacino** (landmark 23/24) e l'incertezza era una soglia fissa di 8 ms scelta a mano.
+
+### Dove stava l'errore (misurato, non supposto)
+- Il rumore casuale non è il problema: con residui di ~1 cm l'istante del culmine ha ~1 ms di incertezza casuale. Il problema è **sistematico**: il bacino non è il baricentro.
+- Il culmine dipende dall'istante di stacco quasi come il tempo di volo: 4 ms di errore sullo stacco danno ±1,1 cm. Non eliminabile (è la velocità *a quell'istante*).
+- La g stimata dalla curvatura (9,3–12,6 m/s² sui 4 salti, a seconda di come si misura la scala) **non** è un controllo affidabile: la scala dall'altezza dell'atleta ha ±15–25 %. Il calcolo resta quindi indipendente dalla scala (vertice di una parabola a curvatura libera), e non si usa g come criterio di scarto.
+
+### Confronto dei baricentri sui video reali (app completa, istanti dai pixel; altezza da tempo di volo → culmine, cm)
+| Video | Volo | Bacino (v4.5) | Tronco | **Corpo intero (v4.6)** |
+|---|---|---|---|---|
+| 0181 frontale 60 fps | 34,9 | 32,0 | 29,3 | **28,9** |
+| 0180 frontale 240/120 (Heavy+specchio / Full) | 46,9 | 45,9 / 45,1 | 43,6 / 43,2 | **41,2 / 41,1** |
+| 0207 laterale | 44,7 | 41,4 / 41,8 | 41,4 / 41,5 | **41,2 / 41,7** |
+| 0208 laterale | 42,4 | 35,9 / 36,0 | 35,9 / 35,9 | **35,8 / 35,9** |
+
+- **Ripetibilità tra i due modelli** (media su 0180/0207/0208): bacino 0,43 cm, tronco 0,17 cm, corpo intero 0,23 cm.
+- **Sensibilità alla finestra** (taglio 4–30 % del volo): bacino 0,5–3,2 cm, tronco 0,1–0,9 cm. **Residuo balistico**: bacino 0,43–0,80 cm, tronco 0,22–0,51 cm. L'adattamento robusto (Tukey) non cambia nulla di misurabile: non adottato.
+- **Scomposizione** (atleta 1, frontale, con oscillazione delle braccia): le braccia abbassano il culmine di 2,6–3,9 cm (scendono in volo, il baricentro si abbassa rispetto al tronco), le gambe lo alzano di 0,8–1,6 cm. Nell'atleta 2 (laterale, braccia ferme) contano ≤ 0,2 cm. Il solo tronco/bacino sovrastima l'altezza proprio quando le braccia oscillano.
+- Il primo tentativo a segmenti (v4.4) era peggiore perché i punti comparivano e sparivano e la massa visibile cambiava a ogni fotogramma. Ora si usa una formula additiva: tronco+testa (50,4 %) come riferimento, e per ogni tipo di segmento (de Leva 1996) la media dei lati utilizzabili; i segmenti leggeri non osservabili si omettono senza rinormalizzare. Braccio, coscia e gamba sono obbligatori; senza di essi si ripiega su tronco, poi su bacino. Sotto ~33 fps gli arti non si usano.
+
+### Cosa è stato verificato con verità nota (simulazione)
+- **Atleta con braccia che oscillano** (scenario costruito perché il baricentro a corpo intero sia esattamente balistico): il solo tronco/bacino sovrastima di **+2,2…+2,4 cm** (braccia orizzontali → giù) e **+4,2…+4,4 cm** (braccia in alto → giù); il corpo intero sbaglia di **0,1–0,5 cm** (60 e 240 fps). Senza braccia i due coincidono (0,01–0,02 cm). Verifica segno, masse e finestre, ma è un test del metodo contro il suo stesso modello di corpo, **non** del rumore dei landmark reali.
+- **Monte Carlo** (200 prove × 30/120/240 fps; proxy con rumore 1 cm e deriva; istanti con errore 4 ms; atterraggio 6 cm più basso dello stacco): bias ≤ 0,3 cm, errore assoluto medio ≈ 1,0 cm, **copertura a 2σ ≥ 95 %** (a 1σ 70–87 %: l'incertezza è leggermente prudente).
+- **Sottocampionamento sui video veri** (240 → 120 → 60 fps equivalenti): corpo intero stabile entro 0,1 cm sui laterali e 41,0–41,2 cm sul frontale (0180, prima 40,8–43,6 per l'insieme di segmenti che cambiava con la fase dei fotogrammi: corretto). Sotto ~33 fps si ripiega sul tronco.
+
+### Incertezza (ora dai dati, non da una soglia fissa)
+σ(culmine − stacco) = √(σ_adattamento² + σ_finestra² + σ_proxy² + σ_stacco²): rumore del vertice, differenza tra tagli di finestra, **metà della distanza massima tra i tre baricentri** (corpo intero, tronco, bacino), incertezza dello stacco (0,7·σ_volo). Passa da ±2,7 cm fisso a ±1,4–2,7 cm (±1,4/1,5 laterale, ±2,0 e ±2,5/2,7 frontale: dove i baricentri divergono di più).
+
+### Nei risultati
+«Da velocità di stacco: X ± Y cm», velocità di stacco dal culmine (m/s), baricentro usato, scarto tra i modi di stimarlo, culmine rispetto a metà volo; CSV: `altezza_vel_stacco_cm`, `inc_vel_stacco_cm`, `baricentro_culmine`, `v_stacco_culmine_ms`.
+
+### Cosa NON è provato (non dichiarare di più)
+- **Nessuna verità da pedana**: non si sa se il corpo intero sia più vicino al vero del tronco o del bacino; si sa che è più coerente con la fisica (arti inclusi), ripetibile e senza il bias da braccia dimostrato in simulazione.
+- Il deficit rispetto al tempo di volo è **3,0–6,5 cm (media 5,2 cm, 12 %)**: sopra la media di letteratura (volo − velocità di stacco ≈ 2,5 cm; fino a ~18 % in simulazione con caviglie flesse all'atterraggio). Non si può escludere che una parte derivi da un istante di stacco in ritardo (8 ms = −2 cm sul culmine) o dai punti degli arti.
+- La stima di postura bacino-piedi (altezza «corretta») sullo stesso salto cambia di 6 cm tra un modello e l'altro (0180: −0,9 e 5,4 cm): troppo rumorosa per arbitrare tra i due metodi.
+- Resta il **tempo di volo l'altezza principale**; il culmine è un controllo con la sua incertezza.
+
+### Validazione ibrida a tre metodi (v4.6, `js/engine/validate.js`)
+Tre misure dell'altezza, confrontate e **mai mediate**:
+
+| Metodo | Come | Dipende da | Si rompe quando |
+|---|---|---|---|
+| 1. Tempo di volo | h = g·T²/8, istanti dai pixel del piede con i tempi reali del file | i due istanti | si atterra più flessi (sovrastima 2–18 %); istanti sbagliati |
+| 2. Baricentro nello spazio | spostamento del baricentro tra stacco e culmine in metri, con la scala dell'altezza dell'atleta | scala, prospettiva | altezza dell'atleta sbagliata, camera inclinata o lontana |
+| 3. Parabola del baricentro | v₀ = g·(t_culmine − t_stacco), h = v₀²/2g, adattamento a curvatura libera | lo stacco | baricentro mal stimato; stacco sbagliato |
+
+Il metodo 2 e il 3 usano la stessa traiettoria (corpo intero, tronco o bacino): **non sono indipendenti**; il loro rapporto equivale a «curvatura / g», cioè verifica che la scala sia coerente con la gravità. Sui 4 salti reali vale 0,96–1,13 con la scala dell'app.
+
+**Coerenza a coppie** (tolleranze fisiche, non calibrate con una pedana): parabola/volo tra 0,80 e 1,03 (atterraggio più basso dello stacco: letteratura fino a ~18 %); spazio/parabola tra 0,75 e 1,33; culmine rispetto a metà volo tra −40 e +15 ms (−40 ms ≈ baricentro 13 cm più basso all'atterraggio). **Affidabilità per metodo** (alta/media/bassa) con i motivi: fonte degli istanti (pixel/misti/landmark/manuali), fps, incertezza, baricentro usato (corpo intero > tronco > bacino), scarto tra i tre baricentri, adattamento, coerenza della scala, altezza dell'atleta impostata. **Metodo consigliato**: il tempo di volo, salvo che la parabola abbia un livello strettamente superiore; nessuno se gli istanti sono sospetti (si chiede la correzione manuale a fotogramma, che ricalcola tutto). **Anomalie di serie**: salto oltre 3,5 σ robuste e >20 % dalla mediana (≥ 4 salti).
+
+**Risultati sui 4 salti reali** (istanti dai pixel; altezze in cm):
+| Video | Volo | Spazio | Parabola | Verdetto |
+|---|---|---|---|---|
+| 0181 frontale 60 fps | 34,9 | 28,9 | 28,9 | coerenti |
+| 0180 frontale 240/120 | 46,9 | 39,7 | 41,2 | coerenti |
+| 0207 laterale | 44,7 | 46,4 | 41,2 | coerenti |
+| 0208 laterale | 42,4 | 40,2 | 35,8 | coerenti |
+
+I tre metodi dello stesso salto differiscono fino a 5–6 cm (0181: 6 cm; 0207: 5 cm): è la dispersione reale tra i metodi, non un errore dichiarato di uno di essi. **Nessuna verità da pedana**: non sappiamo quale dei tre sia il più vicino al vero.
+
+**Errori iniettati** (salto sintetico a 240 fps con verità, più 0207 reale): cosa viene segnalato
+| Errore | Sintetico | Reale (0207) |
+|---|---|---|
+| stacco anticipato di 40 ms | **segnalato** | non segnalato (la dispersione naturale del culmine, −10…−24 ms, lo nasconde) |
+| atterraggio anticipato di 40 ms | **segnalato** | non segnalato |
+| atterraggio in ritardo di 60 ms | non segnalato (parabola/volo 0,81) | **segnalato** (culmine fuori dal plausibile) |
+| atterraggio in ritardo di 30 ms, stacco in ritardo di 40 ms | non segnalati | non segnalati |
+| altezza atleta 140 invece di 175 cm | **segnalata** (scala) | non segnalata (rapporto 0,90) |
+| altezza atleta 210 invece di 175 cm | non segnalata (rapporto 1,13) | **segnalata** |
+
+**Limite misurato**: un atterraggio in ritardo di 30–60 ms o uno stacco in ritardo di 40 ms danno un rapporto parabola/volo di 0,81–0,90, **indistinguibile** da un atterraggio molto flesso. La validazione incrociata sul solo baricentro coglie errori grossolani (≥ ~40–60 ms, scala ≥ ~30 %), non quelli piccoli. Gli istanti restano affidati ai pixel del piede (concordanza pixel/landmark) e alla correzione manuale.
+
+**Altezza balistica e spostamento dalla posizione iniziale** (sono grandezze diverse): la balistica è l'altezza del baricentro *sopra la posizione dello stacco* (v²/2g); lo spostamento è il massimo del baricentro *rispetto alla posizione in piedi iniziale* = (baricentro allo stacco − in piedi) + balistica. Il primo termine si misura con la scala, il secondo con g: sommare tutto in pixel porterebbe l'errore di scala sull'intera altezza (verificato: −2,5 cm con la scala sbagliata del 6 %, −0,3…+0,4 cm con la somma corretta). Test sintetici con verità: balistica ±0,3 cm, baricentro allo stacco +5,0 vero → errore −0,3…+0,2 cm. **Sui video reali**: baricentro allo stacco +23,7 cm (0180, frontale con oscillazione delle braccia) e +14,1 cm (0207, laterale), spostamento massimo 64,9 e 55,3 cm; plausibili (corpo esteso, braccia in alto, punte) ma **non verificati**. Disponibile solo se il video mostra la posizione in piedi prima del contromovimento (non in 0181 e 0208).
+
+**Modelli di postura (valutazione, non sostituzione)**: l'app resta su MediaPipe BlazePose (Heavy con immagine specchiata attorno agli eventi, Full altrove) perché gira nel browser senza caricare i video. RTMPose/RTMW (ONNX Runtime Web, anche con punti di piede) e ViTPose sono alternative serie, ma **non sono state provate**: richiedono rilevatore + modello (decine di MB), integrazione e un confronto sugli stessi video. Gli errori dominanti trovati qui non vengono dal rumore dei punti (ripetibilità del baricentro 0,2–0,5 cm tra modelli) ma da cosa si intende per baricentro e dagli istanti: per questo la prima mossa sono stati pixel del piede e baricentro a corpo intero. Un cambio di modello è utile solo se verificato con lo stesso banco (`apex_exp`) e, meglio, con una pedana.
 

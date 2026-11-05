@@ -12,7 +12,8 @@ th{background:#16202a}.ok{color:#c6f24e}.bad{color:#ff7b7b}.warn{color:#ffd166}
 rilevamento e misura, <b>non</b> la qualità del modello di postura su video reali.</p>
 <div id="out">In esecuzione…</div>
 <script type="module">
-import { analyze, summarizeSeries, heightFromFlight, samozino, sayersPeakPower, rsiOf } from '../js/engine/jumps.js';
+import { validateJump, flagSeries } from '../js/engine/validate.js';
+import { analyze, remeasure, apexEstimate, summarizeSeries, heightFromFlight, samozino, sayersPeakPower, rsiOf } from '../js/engine/jumps.js';
 import { detectView, assessRecording } from '../js/engine/quality.js';
 import { flowEvents } from '../js/engine/footflow.js';
 import { buildScenario, renderTrack, rng } from './sim.js';
@@ -161,6 +162,91 @@ for (const fps of [60, 120, 240]) {
   chk(`Altezza da apice / da volo (CMJ ${fps} fps, ${r.length}/12 salti)`, m, 1, 0.08);
   chk(`Asimmetria dell'apice (CMJ ${fps} fps)`, am, 0, 25, 'ms');
   if (miss > 2) { totalFail++; fRows.push(`<tr><td>Apice assente in ${miss} salti su 12 (${fps} fps)</td><td></td><td></td><td class="bad">KO</td></tr>`); }
+}
+
+// ---- Altezza da velocità di stacco con braccia che oscillano: il baricentro a corpo intero ha verità nota ----
+// Braccia da "giù" a orizzontali/alte allo stacco e di nuovo giù in volo; il baricentro dell'intero corpo (de Leva) resta balistico,
+// mentre tronco e anche si spostano in senso opposto: il solo tronco/bacino sovrastima, il corpo intero no.
+for (const [lab, up] of [['braccia orizzontali → giù', Math.PI / 2], ['braccia in alto → giù', 0.25 * Math.PI]]) {
+  for (const fps of [60, 240]) {
+    const eFull = [], eTr = []; let proxyOk = 0, n = 0;
+    for (const seed of [1, 2, 3, 4, 5, 6]) {
+      const scn = buildScenario('cmj', { T: 0.5 });
+      const tr = scn.truth.find((x) => x.to !== undefined);
+      const res = analyze(renderTrack(scn, { fps, seed: seed * 7 + fps, noise: 0.0025, arms: { up } }), { testType: 'cmj', heightCm: 175 });
+      if (!res.sig) continue;
+      const hT = (g * (tr.td - tr.to) ** 2) / 8 * 100;
+      const j = remeasure(res, tr.to, tr.td, { heightCm: 175, uncT: 0.004 });
+      const j2 = remeasure({ ...res, sig: { ...res.sig, limb: null } }, tr.to, tr.td, { heightCm: 175, uncT: 0.004 });
+      n++; if (j.apexProxy === 'corpo intero') proxyOk++;
+      eFull.push(j.apexCm - hT); eTr.push(j2.apexCm - hT);
+    }
+    const mean = (a) => a.reduce((x, y) => x + y, 0) / a.length;
+    chk(`Culmine, ${lab}, ${fps} fps: errore del corpo intero`, mean(eFull.map(Math.abs)), 0, 1.0, 'cm');
+    chk(`Culmine, ${lab}, ${fps} fps: il solo tronco/bacino sovrastima (≥ 1,5 cm)`, Math.min(mean(eTr), 1.5), 1.5, 0.001, 'cm');
+    chk(`Culmine, ${lab}, ${fps} fps: baricentro «corpo intero» usato (${n} salti)`, proxyOk, n, 0);
+  }
+}
+
+// ---- Calibrazione dell'incertezza dell'altezza da velocità di stacco (Monte Carlo, proxy con rumore e deriva, eventi con errore) ----
+{
+  const rr = rng(2024);
+  for (const fps of [30, 120, 240]) {
+    const dt = 1 / fps; let cover2 = 0, nOk = 0, sumErr = 0, sumAbs = 0;
+    for (let q = 0; q < 200; q++) {
+      const delta = 0.06, v0 = 2.6 + rr.u() * 0.9, to = 1 + rr.u() * dt, T = (v0 + Math.sqrt(v0 * v0 + 2 * g * delta)) / g, td = to + T;
+      const t = Array.from({ length: Math.floor((T + 1.2) / dt) }, (_, i) => to - 0.6 + i * dt);
+      const y = (tt) => (tt < to ? 0 : tt > td ? -delta : v0 * (tt - to) - 0.5 * g * (tt - to) ** 2);
+      const mk = (b) => Float64Array.from(t, (tt) => y(tt) + (tt >= to && tt <= td ? b * ((tt - to) / T - 0.5) : 0) + rr.gauss() * 0.01);
+      const e = apexEstimate({ t, dt, to: to + rr.gauss() * 0.004, td: td + rr.gauss() * 0.004, uncT: 0.0057, series: [{ name: 'corpo intero', sm: mk(0) }, { name: 'tronco', sm: mk(0.02) }, { name: 'bacino', sm: mk(-0.03) }] });
+      if (!e) continue;
+      const err = e.cm - (v0 * v0 / (2 * g)) * 100; nOk++; sumErr += err; sumAbs += Math.abs(err); if (Math.abs(err) <= 2 * e.uncCm) cover2++;
+    }
+    chk(`Apice (Monte Carlo, ${fps} fps): errore medio (bias, ${nOk} prove)`, sumErr / nOk, 0, 0.4, 'cm');
+    chk(`Apice (Monte Carlo, ${fps} fps): errore assoluto medio`, sumAbs / nOk, 1.0, 0.5, 'cm');
+    chk(`Apice (Monte Carlo, ${fps} fps): copertura dell'incertezza a 2σ (≥ 90 %)`, Math.min(100 * cover2 / nOk, 95), 95, 5, '%');
+  }
+}
+
+// ---- Validazione ibrida dei tre metodi (volo / baricentro nello spazio / parabola) ----
+{
+  const base = () => ({ T: 0.6, dt: 1 / 240, fps: 240, heightCm: 44, uncCm: 1, uncT: 0.006, apexCm: 40, apexUncCm: 1.5, apexAsymMs: -15, apexT: 0.28, apexSigTa: 0.004, apexProxy: 'corpo intero', apexSpreadCm: 1, apexRmseRel: 0.003, geoCm: 41, geoUncCm: 4, flow: { pixelBoth: true, src: { to: 'pixel', td: 'pixel' } }, score: 0.9, issues: [] });
+  const st = (j) => validateJump(j).verdict;
+  const ck = (name, ok) => { if (!ok) totalFail++; fRows.push(`<tr><td>${name}</td><td></td><td></td><td class="${ok ? 'ok' : 'bad'}">${ok ? 'OK' : 'KO'}</td></tr>`); };
+  { const j = validateJump(base()); ck('Validazione: salto coerente → «coerenti», consigliato il tempo di volo, nessun avviso', j.verdict.status === 'coerenti' && j.verdict.recommended === 'volo' && !j.issues.some((x) => x.code.startsWith('val_'))); ck('Validazione: pixel a 240 fps → volo «alta»; corpo intero → parabola «alta»', j.methods[0].level === 'alta' && j.methods[2].level === 'alta'); }
+  { const j = base(); j.apexCm = 50; ck('Validazione: parabola più alta del volo → incoerente, nessun metodo consigliato', st(j).status === 'incoerenti' && st(j).recommended === null); }
+  { const j = base(); j.apexCm = 31; ck('Validazione: deficit del 30 % → incoerente', st(j).status === 'incoerenti'); }
+  { const j = base(); j.apexAsymMs = -55; ck('Validazione: culmine a −55 ms da metà volo → istanti sospetti', st(j).flags.some((f) => f.code === 'asimmetria') && st(j).status === 'incoerenti'); }
+  { const j = base(); j.geoCm = 58; const v = st(j); ck('Validazione: scala incoerente → «parziale», flag scala, i metodi sul tempo restano', v.status === 'parziale' && v.flags.some((f) => f.code === 'scala') && v.recommended === 'volo' && j.methods[1].level !== 'alta'); }
+  { const j = base(); j.apexCm = NaN; j.apexT = NaN; j.geoCm = NaN; const v = st(j); ck('Validazione: baricentro non adattabile → solo volo, dichiarato', v.status === 'parziale' && v.flags.some((f) => f.code === 'solo_volo') && j.methods[2].nonDisponibile); }
+  { const j = base(); j.flow = null; const v = st(j); ck('Validazione: istanti dai landmark a 240 fps → volo e parabola non «alta»', j.methods[0].level !== 'alta' && j.methods[2].level !== 'alta'); }
+  { const j = base(); j.flow = { pixelBoth: false, src: { to: 'pixel', td: 'landmark' } }; st(j); ck('Validazione: stacco dai pixel, atterraggio dai landmark → il volo perde, la parabola no', j.methods[0].score < j.methods[2].score); }
+  { const j = base(); j.manual = true; j.flow = null; st(j); ck('Validazione: istanti manuali → motivo «scelti a mano», nessuna penalità di fonte', j.methods[0].pro.some((t) => /a mano/.test(t)) && j.methods[0].level === 'alta'); }
+  { const j = base(); j.scaleAssumed = true; st(j); ck('Validazione: altezza dell\'atleta non impostata → metodo spaziale penalizzato con motivo', j.methods[1].contro.some((t) => /scala presunta/.test(t)) && j.methods[1].level !== 'alta'); }
+  { const j = base(); validateJump(j); const s1 = j.score, n1 = j.issues.length; validateJump(j); validateJump(j); ck('Validazione: idempotente (punteggio e avvisi non si accumulano)', Math.abs(j.score - s1) < 1e-12 && j.issues.length === n1); }
+  { const j = base(); j.apexCm = 50; validateJump(j); const bad = j.score; j.apexCm = 40; validateJump(j); ck('Validazione: la penalità sparisce quando il salto torna coerente', j.score > bad && !j.issues.some((x) => x.code.startsWith('val_'))); }
+  { const mk = (hs) => hs.map((h) => ({ heightCm: h, issues: [] })); const a = mk([40, 41, 39, 40, 42, 12]); flagSeries(a); const b = mk([40, 41, 39, 40]); flagSeries(b); const c = mk([30, 32, 31, 29, 33, 31]); flagSeries(c);
+    ck('Serie: salto anomalo (12 cm tra salti da 40) segnalato, gli altri no; serie normale e serie corta intatte', !!a[5].seriesOutlier && !a.slice(0, 5).some((x) => x.seriesOutlier) && !b.some((x) => x.seriesOutlier) && !c.some((x) => x.seriesOutlier)); }
+}
+
+// ---- Errori iniettati su un salto sintetico (verità nota): cosa individua la validazione e cosa no ----
+{
+  const ck = (name, ok) => { if (!ok) totalFail++; fRows.push(`<tr><td>${name}</td><td></td><td></td><td class="${ok ? 'ok' : 'bad'}">${ok ? 'OK' : 'KO'}</td></tr>`); };
+  for (const [lab, arms] of [['braccia ferme', null], ['braccia oscillanti', { up: Math.PI / 2 }]]) {
+    const scn = buildScenario('cmj', { T: 0.55 }); const tr = scn.truth.find((x) => x.to !== undefined);
+    const res = analyze(renderTrack(scn, { fps: 240, seed: 5, noise: 0.0025, arms }), { testType: 'cmj', heightCm: 175 });
+    const run = (dTo, dTd, hs = 1) => remeasure(res, tr.to + dTo, tr.td + dTd, { heightCm: 175 * hs, uncT: 0.004, testType: 'cmj' });
+    const j0 = run(0, 0);
+    ck(`Errori iniettati (${lab}): nessun errore → coerenti`, j0.verdict.status === 'coerenti');
+    ck(`Errori iniettati (${lab}): stacco anticipato di 40 ms → segnalato`, run(-0.04, 0).verdict.status === 'incoerenti');
+    ck(`Errori iniettati (${lab}): atterraggio anticipato di 40 ms → segnalato`, run(0, -0.04).verdict.status === 'incoerenti');
+    ck(`Errori iniettati (${lab}): altezza atleta 140 invece di 175 cm → flag scala`, run(0, 0, 0.8).verdict.flags.some((f) => f.code === 'scala'));
+    // distinzione balistica / spostamento dalla posizione iniziale (verità: baricentro = s.hip)
+    const hBal = (g * (tr.td - tr.to) ** 2) / 8 * 100, up0 = (scn.state(tr.to).hip - scn.state(0.05).hip) * 100;
+    chk(`Altezza balistica (${lab}): errore`, j0.ballisticCm - hBal, 0, 1.0, 'cm');
+    chk(`Baricentro allo stacco sopra la posizione iniziale (${lab}): vero +${up0.toFixed(1)} cm`, j0.takeoffRiseCm, up0, 1.5, 'cm');
+    chk(`Spostamento massimo dal punto iniziale (${lab}): vero ${(up0 + hBal).toFixed(1)} cm`, j0.riseFromStartCm, up0 + hBal, 1.5, 'cm');
+  }
 }
 
 // ---- Riconoscimento dell'inquadratura (scheletro stilizzato) ----

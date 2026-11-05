@@ -128,7 +128,15 @@ export function buildScenario(kind, p = {}) {
 /**
  * Genera una traccia { t, kp, aspect } a un certo fps. noise = sigma in altezza-fotogramma.
  */
-export function renderTrack(scn, { fps = 240, noise = 0.0025, seed = 1, dropout = 0.02, outlier = 0.01, heightM = 1.75, bodyFrac = 0.55 } = {}) {
+// Segmenti (de Leva) usati dal modo "braccia": massa %, frazione dal punto prossimale
+const SEG_ARM = [[2.71, 0.5772], [1.62, 0.4574], [0.61, 0.5]];
+
+/**
+ * arms: { up } = angolo del braccio (rad dalla verticale verso l'alto: 0 su, π/2 orizzontale, π giù) allo stacco. Le braccia vanno da "giù"
+ * a `up` nei 0,25 s prima dello stacco e tornano giù durante il volo. In questo modo il baricentro dell'intero corpo (de Leva, stesse formule
+ * dell'app) resta ESATTAMENTE balistico (= s.hip) mentre tronco e anche si spostano in senso opposto: verità nota per il baricentro a corpo intero.
+ */
+export function renderTrack(scn, { fps = 240, noise = 0.0025, seed = 1, dropout = 0.02, outlier = 0.01, heightM = 1.75, bodyFrac = 0.55, arms = null } = {}) {
   const r = rng(seed);
   const phase = r.u() / fps;
   const mPerFh = heightM / bodyFrac;
@@ -136,6 +144,14 @@ export function renderTrack(scn, { fps = 240, noise = 0.0025, seed = 1, dropout 
   const t = [], kp = [];
   const fh = (m) => floorY - m / mPerFh;
   const put = (a, i, x, y, v = 0.95) => { a[i * 3] = x; a[i * 3 + 1] = y; a[i * 3 + 2] = v; };
+  const flights = scn.truth.filter((x) => x.to !== undefined);
+  const thetaAt = (tk) => {
+    for (const f of flights) {
+      if (tk >= f.to - 0.25 && tk < f.to) { const u = (tk - (f.to - 0.25)) / 0.25, e = u * u * (3 - 2 * u); return Math.PI + (arms.up - Math.PI) * e; }
+      if (tk >= f.to && tk <= f.td) return arms.up + (Math.PI - arms.up) * ((tk - f.to) / (f.td - f.to));
+    }
+    return Math.PI;
+  };
   for (let k = 0; ; k++) {
     const tk = k / fps + phase;
     if (tk > scn.end) break;
@@ -143,17 +159,33 @@ export function renderTrack(scn, { fps = 240, noise = 0.0025, seed = 1, dropout 
     const a = new Float32Array(33 * 3);
     const n = (sc = 1) => r.gauss() * noise * sc;
     const spike = () => (r.u() < outlier ? (r.u() - 0.5) * 0.08 : 0);
-    const hipY = fh(s.hip), cx = 0.5;
-    put(a, 0, cx, fh(s.hip + 0.78) + n());
-    put(a, 11, cx - 0.02, fh(s.hip + 0.5) + n()); put(a, 12, cx + 0.02, fh(s.hip + 0.5) + n());
-    put(a, 23, cx - 0.01, hipY + n()); put(a, 24, cx + 0.01, hipY + n());
     const kneeH = s.hip - 0.45 + Math.max(0, (s.hip - s.toe - 0.95)) * 0;
+    let hipM = s.hip, shM = s.hip + 0.5, noseM = s.hip + 0.78, armPts = null;
+    if (arms) {
+      // posizione del tronco T tale che il baricentro a corpo intero coincida con s.hip (risolto in modo lineare)
+      const th = thetaAt(tk), c = Math.cos(th), Lt = 0.5, ank0 = s.toe + 0.085;
+      const com = (T) => {
+        const sh = T + 0.47 * Lt, hp = T - 0.53 * Lt;
+        const elb = sh + 0.30 * c, wr = sh + 0.57 * c, ix = sh + 0.65 * c;
+        const arm = SEG_ARM[0][0] * (sh + SEG_ARM[0][1] * (elb - sh)) + SEG_ARM[1][0] * (elb + SEG_ARM[1][1] * (wr - elb)) + SEG_ARM[2][0] * (wr + SEG_ARM[2][1] * (ix - wr));
+        const leg = 14.16 * (hp + 0.4095 * (kneeH - hp)) + 4.33 * (kneeH + 0.4459 * (ank0 - kneeH)) + 1.37 * (s.heel + 0.4415 * (s.toe - s.heel));
+        return (50.4 * T + 2 * arm + 2 * leg) / 100;
+      };
+      const c0 = com(0), c1 = com(1), T = (s.hip - c0) / (c1 - c0);
+      hipM = T - 0.53 * Lt; shM = T + 0.47 * Lt; noseM = shM + 0.28;
+      armPts = { elb: shM + 0.30 * c, wr: shM + 0.57 * c, ix: shM + 0.65 * c };
+    }
+    const hipY = fh(hipM), cx = 0.5;
+    put(a, 0, cx, fh(noseM) + n());
+    put(a, 11, cx - 0.02, fh(shM) + n()); put(a, 12, cx + 0.02, fh(shM) + n());
+    put(a, 23, cx - 0.01, hipY + n()); put(a, 24, cx + 0.01, hipY + n());
+    if (armPts) for (const [i, m, dx] of [[13, armPts.elb, -0.1], [14, armPts.elb, 0.1], [15, armPts.wr, -0.1], [16, armPts.wr, 0.1], [19, armPts.ix, -0.1], [20, armPts.ix, 0.1]]) put(a, i, cx + dx, fh(m) + n(1.4));
     put(a, 25, cx, fh(kneeH) + n()); put(a, 26, cx, fh(kneeH) + n());
     const ank = s.toe + 0.085;
     put(a, 27, cx - 0.02, fh(ank) + n()); put(a, 28, cx + 0.02, fh(ank) + n());
     put(a, 29, cx - 0.04, fh(s.heel) + n(1.4) + spike()); put(a, 30, cx - 0.04, fh(s.heel) + n(1.4) + spike());
     put(a, 31, cx + 0.04, fh(s.toe) + n(1.4) + spike()); put(a, 32, cx + 0.04, fh(s.toe) + n(1.4) + spike());
-    for (const i of [0, 11, 12, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32]) if (r.u() < dropout) a[i * 3 + 2] = 0.05;
+    for (const i of [0, 11, 12, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, ...(armPts ? [13, 14, 15, 16, 19, 20] : [])]) if (r.u() < dropout) a[i * 3 + 2] = 0.05;
     t.push(tk); kp.push(a);
   }
   return { t, kp, aspect };

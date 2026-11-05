@@ -57,9 +57,20 @@ Cloudflare Pages o Vercel come sito statico. Apri l'URL HTTPS su iPhone con Safa
 - Ripiego sul bacino quando i piedi non sono rilevati per brevi tratti.
 - Dettagli, misure e limiti in `VALIDAZIONE.md`.
 
+## Novità v4.6 (controllo dell'altezza da velocità di stacco)
+
+- **Baricentro a corpo intero** (tronco + braccia + gambe, de Leva) al posto del solo bacino: con braccia che oscillano il bacino sovrastimava il culmine di 2–4 cm (dimostrato in simulazione, osservato nei video frontali).
+- **Incertezza misurata**, non fissa: rumore dell'adattamento, finestra, scarto tra tre baricentri (corpo intero/tronco/bacino) e istante di stacco. Calibrata con Monte Carlo (copertura 95 % a 2σ).
+- **Velocità di stacco dal culmine** (m/s) accanto a quella dal tempo di volo, baricentro usato e scarto tra i metodi nei risultati e nel CSV.
+- Ripiego automatico su tronco/bacino se gli arti non sono osservabili o sotto ~33 fps.
+- **Validazione ibrida dei tre metodi** (tempo di volo · baricentro nello spazio · parabola del baricentro): si confrontano con tolleranze fisiche, mai mediati; ciascuno ha un livello di affidabilità motivato, le incoerenze vengono segnalate e si indica quale usare. Gli istanti si correggono a mano fotogramma per fotogramma e tutto si ricalcola.
+- **Altezza balistica** (sopra lo stacco) distinta dallo **spostamento rispetto alla posizione iniziale** (in piedi).
+- Anomalie di serie (salto lontano dalla mediana). Limiti misurati con errori iniettati in `VALIDAZIONE.md`.
+- Misure, risultati negativi e limiti in `VALIDAZIONE.md` (sezione v4.6). Nessuna verità da pedana: la stima resta un controllo.
+
 ## Novità v4.5 (controlli incrociati e seconda stima dell'altezza)
 
-- **Altezza da velocità di stacco** (apice del bacino) accanto a quella da tempo di volo: non dipende dall'atterraggio più flesso. È un controllo, non un sostituto: mostrata con la sua incertezza, inclusa nel CSV.
+- **Altezza da velocità di stacco** (apice del baricentro; v4.6: corpo intero) accanto a quella da tempo di volo: non dipende dall'atterraggio più flesso. È un controllo, non un sostituto: mostrata con la sua incertezza, inclusa nel CSV.
 - Finestra di tracciamento del piede più ampia: stacco laterale più ripetibile (±16 → ±8 ms nei video di prova).
 - Provato e scartato: baricentro a segmenti al posto del bacino (peggiore sui dati reali).
 - Cache offline completa; test di regressione per la nuova stima.

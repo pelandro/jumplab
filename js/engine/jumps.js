@@ -13,6 +13,7 @@ import {
   isNum, clamp, median, percentile, mean, robustSigma, medianFilter, fillGaps,
   smooth, derivative, resampleUniform, findPeaks, hingeFit, hingeFit2, parabolaFit,
 } from './signal.js';
+import { validateJump } from './validate.js';
 
 export const G = 9.80665;
 
@@ -33,6 +34,15 @@ export const LM = {
   NOSE: 0, LSH: 11, RSH: 12, LHIP: 23, RHIP: 24, LKNEE: 25, RKNEE: 26,
   LANK: 27, RANK: 28, LHEEL: 29, RHEEL: 30, LTOE: 31, RTOE: 32,
 };
+
+// Segmenti di braccia e gambe (de Leva 1996, maschi): massa %, punti BlazePose prossimale/distale, frazione dal prossimale.
+// Il tronco con la testa (50,4 % della massa) è il segnale di riferimento; qui solo ciò che se ne discosta.
+const LIMB_SEGS = [
+  ['arm', 0, 2.71, 11, 13, 0.5772], ['arm', 0, 1.62, 13, 15, 0.4574], ['arm', 0, 0.61, 15, 19, 0.5],
+  ['arm', 1, 2.71, 12, 14, 0.5772], ['arm', 1, 1.62, 14, 16, 0.4574], ['arm', 1, 0.61, 16, 20, 0.5],
+  ['leg', 0, 14.16, 23, 25, 0.4095], ['leg', 0, 4.33, 25, 27, 0.4459], ['leg', 0, 1.37, 29, 31, 0.4415],
+  ['leg', 1, 14.16, 24, 26, 0.4095], ['leg', 1, 4.33, 26, 28, 0.4459], ['leg', 1, 1.37, 30, 32, 0.4415],
+];
 
 export const TEST_TYPES = {
   cmj: { label: 'CMJ', long: 'Countermovement jump', needsDip: true },
@@ -129,8 +139,9 @@ export function buildSignals(track, tune = {}) {
     }
     k = e;
   }
+  const limb = buildLimb(tRaw, kp, dt, n, tGrid);
   return {
-    t: tGrid, dt, n, fps: 1 / dt, bodyH, aspect,
+    t: tGrid, dt, n, fps: 1 / dt, bodyH, aspect, limb,
     footLow, footLowRaw, footLowAnkle,
     hip: f(grid.hip), hipX: fillGaps(grid.hipX, 3), sh: f(grid.sh), nose: f(grid.nose),
     vis: fillGaps(grid.vis, 3),
@@ -247,6 +258,133 @@ function hipUpSignal(sig) {
   const sm = smooth(sig.t, filled, half, 2);
   const vel = derivative(sig.t, filled, clamp(Math.round(0.05 / sig.dt), 2, 12), 2);
   return { sm, vel };
+}
+
+/**
+ * Posizione verticale (coordinate immagine, giù = positivo) di ogni segmento di braccia e gambe RELATIVA AL TRONCO, sulla griglia
+ * uniforme: buchi colmati (≤ 0,25 s) e lisciata (mediana su 5 campioni + media mobile 0,25 s): gli arti si spostano lentamente rispetto
+ * al tronco e i loro punti sono rumorosi, quindi serve solo la loro deriva. `cov` ricorda dove il dato era vero.
+ */
+function buildLimb(tRaw, kp, dt, n, tGrid) {
+  const N = tRaw.length, ok = (p, i) => p && p[i * 3 + 2] >= VIS;
+  const trunk = new Float64Array(N).fill(NaN);
+  for (let k = 0; k < N; k++) {
+    const p = kp[k]; if (!p) continue;
+    const sh = mean([ok(p, 11) ? p[34] : NaN, ok(p, 12) ? p[37] : NaN]), hp = mean([ok(p, 23) ? p[70] : NaN, ok(p, 24) ? p[73] : NaN]);
+    if (isNum(sh) && isNum(hp)) trunk[k] = 0.53 * sh + 0.47 * hp;
+  }
+  const half = Math.max(1, Math.round(0.125 / dt));
+  const segs = [];
+  for (const [g, side, m, a, b, f] of LIMB_SEGS) {
+    const rel = new Float64Array(N).fill(NaN);
+    for (let k = 0; k < N; k++) {
+      const p = kp[k];
+      if (p && isNum(trunk[k]) && ok(p, a) && ok(p, b)) rel[k] = p[a * 3 + 1] + f * (p[b * 3 + 1] - p[a * 3 + 1]) - trunk[k];
+    }
+    const r = resampleUniform(tRaw, rel, dt, dt * 3.5).y;
+    const cov = Uint8Array.from(r, (v) => (isNum(v) ? 1 : 0));
+    const filled = medianFilter(fillGaps(r, Math.round(0.25 / dt)), 5);
+    const sm = new Float64Array(n).fill(NaN);
+    for (let i = 0; i < n; i++) {
+      let sum = 0, c = 0;
+      for (let q = Math.max(0, i - half); q <= Math.min(n - 1, i + half); q++) if (isNum(filled[q])) { sum += filled[q]; c++; }
+      if (c) sm[i] = sum / c;
+    }
+    segs.push({ g, side, ty: segs.filter((q) => q.g === g && q.side === side).length, m, rel: sm, cov });
+  }
+  return { segs };
+}
+
+/**
+ * Offset del baricentro del corpo intero rispetto al tronco (coordinate immagine, giù = positivo), nella finestra [i0, i1].
+ * Formula additiva: tronco + testa (50,4 %) sono il riferimento, ogni tipo di segmento (braccio, avambraccio, mano, coscia, gamba, piede)
+ * aggiunge m·(posizione − tronco). Per ciascun tipo si fa la media dei lati utilizzabili (dato continuo nella finestra dopo il colmare
+ * dei buchi e almeno il 35 % di fotogrammi veri); se ne manca uno solo si assume il movimento simmetrico (salti bilaterali).
+ * Braccio, coscia e gamba sono obbligatori (grosso della massa), mano, avambraccio e piede si omettono se non osservabili: senza
+ * rinormalizzare, quindi senza salti quando un punto compare o scompare. Se mancano i segmenti obbligatori restituisce null (si resta sul tronco).
+ */
+function limbOffset(sig, i0, i1) {
+  if (!sig.limb || sig.dt > 0.03) return null; // sotto ~33 fps pochi campioni per lisciare gli arti
+  const out = new Float64Array(sig.n), len = i1 - i0 + 1;
+  const lo = Math.max(0, i0 - 2), hi = Math.min(sig.n - 1, i1 + 2);
+  const usable = (q) => {
+    let c = 0;
+    for (let i = i0; i <= i1; i++) { if (!isNum(q.rel[i])) return false; c += q.cov[i]; }
+    return c >= 0.35 * len;
+  };
+  const types = [['arm', 0, true], ['arm', 1, false], ['arm', 2, false], ['leg', 0, true], ['leg', 1, true], ['leg', 2, false]]; // [gruppo, indice del segmento, obbligatorio]
+  for (const [grp, ty, must] of types) {
+    const segs = sig.limb.segs.filter((q) => q.g === grp && q.ty === ty && usable(q));
+    if (!segs.length) { if (must) return null; continue; }
+    for (let i = lo; i <= hi; i++) {
+      let v = 0, c = 0;
+      for (const q of segs) if (isNum(q.rel[i])) { v += q.rel[i]; c++; }
+      if (c) out[i] += (2 * segs[0].m * (v / c)) / 100;
+    }
+  }
+  return out;
+}
+
+/** Baricentro del tronco (de Leva: 47 % dalle spalle verso le anche), "su" positivo. Più ballistico del solo bacino. */
+function trunkUpSignal(sig) {
+  const raw = Float64Array.from(sig.hip, (h, i) => (isNum(h) && isNum(sig.sh[i]) ? -(0.53 * sig.sh[i] + 0.47 * h) : NaN));
+  const filled = fillGaps(raw, Math.round(0.1 / sig.dt) + 1);
+  const half = clamp(Math.round(0.03 / sig.dt), 1, 6);
+  return { sm: smooth(sig.t, filled, half, 2) };
+}
+
+/**
+ * Altezza da VELOCITÀ DI STACCO: tra stacco e atterraggio il baricentro è in caduta libera, quindi il tempo che impiega ad arrivare al
+ * culmine dà la velocità di stacco: v0 = g·(t_culmine − t_stacco), h = v0²/(2g). Come il metodo impulso-quantità di moto delle pedane, non
+ * dipende da come si atterra (il tempo di volo sovrastima se si atterra più flessi) né dalla scala in pixel (il culmine è il vertice di
+ * una parabola a curvatura libera). `series` = proxy del baricentro in ordine di preferenza ({name, sm}, "su" positivo).
+ *
+ * Il baricentro vero non è osservabile: si usa il tronco (spalle+anche, ~50 % della massa), meno rumoroso e più ripetibile del solo
+ * bacino (su 4 salti reali: residuo balistico 0,2–0,5 cm contro 0,4–0,8 cm; differenza tra modelli 0,1–0,2 cm contro 0,3–1,0 cm;
+ * intervallo al variare della finestra 0,1–0,9 cm contro 0,5–3,2 cm). L'incertezza viene dai dati: rumore dell'adattamento, finestra,
+ * differenza tra proxy e istante di stacco (il culmine dipende da lui quasi quanto il tempo di volo).
+ */
+export function apexEstimate({ t, dt, series, to, td, uncT = 0 }) {
+  const T = td - to;
+  if (!(T > 0.1 && T < 1.5)) return null;
+  const fitWith = (sm, cut) => {
+    const m = Math.max(1, Math.round((cut * T) / dt));
+    const i0 = Math.max(0, Math.round((to - t[0]) / dt)) + m, i1 = Math.min(t.length - 1, Math.round((td - t[0]) / dt)) - m;
+    const pf = parabolaFit(t, sm, i0, i1);
+    if (!pf || !(pf.c2 < 0) || pf.n < 12 || pf.n < 0.7 * (i1 - i0 + 1)) return null;
+    const ta = pf.t0 - pf.c1 / (2 * pf.c2);
+    if (!(ta > to + 0.2 * T && ta < td - 0.2 * T)) return null;
+    const W = ((i1 - i0) * dt) / 2; // semi-ampiezza della finestra (s)
+    const sigFit = pf.rmse / (W * Math.sqrt(pf.n / 3)) / (2 * -pf.c2); // errore casuale del vertice (s)
+    return { ta, rmse: pf.rmse, sigFit, c0: pf.c0, c1: pf.c1, c2: pf.c2, t0: pf.t0, n: pf.n };
+  };
+  const res = [];
+  for (const sr of series) {
+    if (!sr?.sm) continue;
+    const base = fitWith(sr.sm, 0.12);
+    if (!base) continue;
+    const alt = [0.08, 0.2].map((c) => fitWith(sr.sm, c)).filter(Boolean).map((f) => f.ta);
+    res.push({ name: sr.name, ...base, alt: [base.ta, ...alt] });
+  }
+  if (!res.length) return null;
+  const p = res[0];
+  const sigWin = (Math.max(...p.alt) - Math.min(...p.alt)) / 2;
+  // sistematico: i proxy del baricentro (corpo intero, tronco, bacino) danno culmini diversi; metà della distanza massima dal principale.
+  // Con un solo proxy disponibile si assume lo scarto tipico osservato (6 ms)
+  const sigProxy = res.length > 1 ? Math.max(...res.slice(1).map((r) => Math.abs(r.ta - p.ta))) / 2 : 0.006;
+  const hOf = (ta) => ((G * (ta - to) ** 2) / 2) * 100, hs = res.map((r) => hOf(r.ta));
+  const sigTa = Math.hypot(p.sigFit, sigWin, sigProxy, 0.003);
+  const apexT = p.ta - to;
+  const yAt = (tt) => p.c0 + p.c1 * (tt - p.t0) + p.c2 * (tt - p.t0) ** 2; // traiettoria adattata ("su" positivo, altezze di fotogramma)
+  return {
+    cm: ((G * apexT * apexT) / 2) * 100,
+    uncCm: G * apexT * Math.hypot(sigTa, 0.7 * uncT) * 100,
+    ta: p.ta, apexT, sigTa, c2: p.c2, yApex: yAt(p.ta), yTo: yAt(to), n: p.n,
+    asymMs: (p.ta - (to + td) / 2) * 1000, // < 0: il culmine arriva prima della metà del volo (atterraggio più basso dello stacco)
+    proxy: p.name,
+    spreadCm: Math.max(...hs) - Math.min(...hs), // intervallo tra proxy (diagnostica)
+    rmse: p.rmse,
+  };
 }
 
 /** Caduta da pedana (drop jump): cerca l'atterraggio precedente al volo e il livello della pedana. */
@@ -369,24 +507,38 @@ export function describeJump(sig, cache, to, td, ctx = {}) {
   const uncT = ctx.uncT ?? Math.SQRT2 * 0.35 * dt * 1.3;
   const uncCm = ((G * T * uncT) / 4) * 100;
 
-  // Altezza da VELOCITÀ DI STACCO: tra stacco e atterraggio il baricentro (qui il bacino) è in caduta libera, quindi il tempo che impiega ad
-  // arrivare al culmine dà la velocità di stacco: v0 = g·(t_culmine − t_stacco), h = v0²/(2g). Come il metodo impulso-quantità di moto delle
-  // pedane, non dipende da come si atterra (il tempo di volo sovrastima se si atterra più flessi) né dalla scala in pixel. Il culmine è il
-  // vertice di una parabola adattata al 76 % centrale del volo. Misurato su 4 salti reali: da 0,9 a 6,6 cm sotto il tempo di volo, nel verso
-  // atteso dalla letteratura; la sensibilità all'istante di stacco è simile a quella del tempo di volo, quella al culmine è ±8 ms (stima).
-  let apexCm = NaN, apexUncCm = NaN, apexAsymMs = NaN;
-  if (T < 1.5 && cache.hip?.sm) {
-    const m2 = Math.max(1, Math.round((0.12 * T) / dt));
-    const pf = parabolaFit(t, cache.hip.sm, i0 + m2, i1 - m2);
-    if (pf && pf.c2 < 0 && pf.n >= 12) {
-      const ta = pf.t0 - pf.c1 / (2 * pf.c2);
-      if (ta > to + 0.2 * T && ta < td - 0.2 * T) {
-        apexCm = ((G * (ta - to) ** 2) / 2) * 100;
-        apexAsymMs = (ta - (to + td) / 2) * 1000; // < 0: il culmine arriva prima della metà del volo (atterraggio più basso dello stacco)
-        apexUncCm = G * (ta - to) * Math.hypot(0.008, uncT * 0.7) * 100;
-        if (heightCm > 8 && (heightCm - apexCm) / heightCm > 0.15) {
-          add('info', 'apexdiff', `L'altezza da velocità di stacco (${apexCm.toFixed(1)} cm) è inferiore del ${(((heightCm - apexCm) / heightCm) * 100).toFixed(0)} % a quella da tempo di volo (${heightCm.toFixed(1)} cm): tipico di un atterraggio più flesso dello stacco (il tempo di volo sovrastima). Il valore reale sta probabilmente tra i due.`, 0);
-        }
+  // Altezza da velocità di stacco (culmine del tronco/bacino): vedi apexEstimate. Misurato su 4 salti reali: da 0,9 a 6,6 cm sotto
+  // il tempo di volo, nel verso atteso dalla letteratura (volo − velocità di stacco ≈ 2,5 cm in media, fino al 18 % con caviglie flesse).
+  let apexCm = NaN, apexUncCm = NaN, apexAsymMs = NaN, apexProxy = null, apexSpreadCm = NaN, apexV0 = NaN, apexV0Unc = NaN;
+  let apexT = NaN, apexSigTa = NaN, apexRmseRel = NaN, geoCm = NaN, geoUncCm = NaN, apexInfo = null, standOf = null;
+  {
+    const trunk = cache.trunk ?? trunkUpSignal(sig);
+    // baricentro a corpo intero = tronco + deriva delle braccia e delle gambe; se non osservabili si ripiega su tronco e bacino
+    const off = limbOffset(sig, i0, i1);
+    const series = off
+      ? [{ name: 'corpo intero', sm: Float64Array.from(trunk.sm, (v, i) => v - off[i]) }, { name: 'tronco', sm: trunk.sm }, { name: 'bacino', sm: cache.hip?.sm }]
+      : [{ name: 'tronco', sm: trunk.sm }, { name: 'bacino', sm: cache.hip?.sm }];
+    const ae = apexEstimate({ t, dt, to, td, uncT, series });
+    if (ae && !(ae.rmse > 0.02 * bodyH)) {
+      apexInfo = ae; apexT = ae.apexT; apexSigTa = ae.sigTa; apexRmseRel = ae.rmse / bodyH;
+      // metodo 2 (spazio): spostamento del baricentro tra stacco e culmine in metri con la scala dell'atleta (curvatura misurata, non g)
+      geoCm = ((-ae.c2 * ae.apexT * ae.apexT) / fhPerM) * 100;
+      geoUncCm = geoCm * Math.hypot(0.1, (2 * Math.hypot(ae.sigTa, 0.7 * uncT)) / ae.apexT);
+      // riferimento della posizione iniziale con lo stesso baricentro usato per il culmine
+      standOf = (a, b) => {
+        if (b <= a + 3) return NaN;
+        const o = ae.proxy === 'corpo intero' ? limbOffset(sig, a, b) : null;
+        if (ae.proxy === 'corpo intero' && !o) return NaN;
+        const base = ae.proxy === 'bacino' ? cache.hip?.sm : trunk.sm;
+        const v = [];
+        for (let i = a; i <= b; i++) { const x = base?.[i] - (o ? o[i] : 0); if (isNum(x)) v.push(x); }
+        return v.length >= 3 ? median(v) : NaN;
+      };
+      apexCm = ae.cm; apexUncCm = ae.uncCm; apexAsymMs = ae.asymMs; apexProxy = ae.proxy; apexSpreadCm = ae.spreadCm;
+      apexV0 = Math.sqrt(2 * G * (apexCm / 100)); // v = √(2·g·h); incertezza: dv = g·dh / v
+      apexV0Unc = (G * (apexUncCm / 100)) / Math.max(apexV0, 0.1);
+      if (heightCm > 8 && (heightCm - apexCm) / heightCm > 0.15) {
+        add('info', 'apexdiff', `L'altezza da velocità di stacco (${apexCm.toFixed(1)} cm) è inferiore del ${(((heightCm - apexCm) / heightCm) * 100).toFixed(0)} % a quella da tempo di volo (${heightCm.toFixed(1)} cm): tipico di un atterraggio più flesso dello stacco (il tempo di volo sovrastima). Il valore reale sta probabilmente tra i due.`, 0);
       }
     }
   }
@@ -424,7 +576,9 @@ export function describeJump(sig, cache, to, td, ctx = {}) {
 
   const ph = TEST_TYPES[ctx.testType]?.needsDip || !ctx.contact ? phaseMetrics(sig, hip, i0, to) : null;
   const j = {
-    to, td, T, heightCm, v0, flightMs: T * 1000, uncT, uncCm, postureDropCm, heightCorrCm, apexCm, apexUncCm, apexAsymMs,
+    to, td, T, heightCm, v0, flightMs: T * 1000, uncT, uncCm, postureDropCm, heightCorrCm, apexCm, apexUncCm, apexAsymMs, apexProxy, apexSpreadCm, apexV0, apexV0Unc, apexT, apexSigTa, apexRmseRel, geoCm, geoUncCm,
+    dt, fps: 1 / dt, fitFailed: !!ctx.fitFailed, scaleAssumed: !ctx.heightCm,
+    riseFromStartCm: NaN, riseFromStartUncCm: NaN, takeoffRiseCm: NaN, ballisticCm: NaN,
     contact: ctx.contact ?? null, contactSource: ctx.contactSource ?? null,
     riseCm, gRatio, timeScaleHint, frameCm, coverage: cov,
     dipCm: NaN, timeToTakeoff: NaN, rsiMod: NaN, rsi: NaN, rsiFlight: NaN, boxCm: ctx.boxCm ?? null,
@@ -452,6 +606,18 @@ export function describeJump(sig, cache, to, td, ctx = {}) {
     if (ctx.testType === 'sj' && j.cmDetected) add('warn', 'cm_in_sj', 'Squat jump: rilevato un contromovimento prima della spinta (fermati 2 s nella posizione bassa).', 0.1);
     if ((ctx.testType === 'cmj' || ctx.testType === 'cmj_arms') && isNum(j.dipCm) && j.dipCm < 4) add('info', 'nodip', 'Contromovimento molto piccolo: il salto sembra partire da fermo.', 0);
   }
+  // Spostamento verticale del baricentro rispetto alla POSIZIONE INIZIALE (in piedi prima del contromovimento): diverso dall'altezza
+  // balistica (sopra la posizione dello stacco), perché al decollo il baricentro è già più in alto (piedi sulle punte, braccia).
+  if (apexInfo && standOf && isNum(j.onsetT)) {
+    const ys = standOf(idxAt(sig, j.onsetT - 0.2), idxAt(sig, j.onsetT));
+    if (isNum(ys)) {
+      // spostamento = (stacco − posizione iniziale, in metri con la scala: piccolo) + (altezza balistica, da g: senza scala). Sommare in pixel
+      // anche il volo porterebbe l'errore di scala (~6–14 %) su tutto lo spostamento.
+      j.takeoffRiseCm = ((apexInfo.yTo - ys) / fhPerM) * 100;
+      j.riseFromStartCm = j.takeoffRiseCm + apexCm;
+      j.riseFromStartUncCm = Math.hypot(0.1 * Math.abs(j.takeoffRiseCm), apexUncCm);
+    }
+  }
   // Sayers et al. 1999 (equazione per squat jump; applicata a dati CMJ sovrastima il picco di potenza del ~2,7 %)
   if (ctx.massKg > 0) j.sayersW = sayersPeakPower(heightCm, ctx.massKg);
   // Rapporti utili: tempo di volo / tempo di contrazione (FT:CT) e velocità media di spinta (Samozino: v = sqrt(g·h/2))
@@ -469,6 +635,7 @@ export function describeJump(sig, cache, to, td, ctx = {}) {
   j.score = clamp(score, 0, 1);
   j.confidence = j.score >= 0.75 ? 'alta' : j.score >= 0.5 ? 'media' : 'bassa';
   j.issues = issues;
+  validateJump(j);
   return j;
 }
 
@@ -480,6 +647,7 @@ export function analyze(track, opts = {}) {
   if (!sig) return { sig: null, jumps: [], error: 'Traccia troppo corta o corpo non rilevato' };
   const det = detectFlights(sig, opts);
   const hip = hipUpSignal(sig);
+  const trunk = trunkUpSignal(sig);
   const testType = opts.testType || 'free';
   const jumps = [];
   const wantsContacts = testType === 'dj' || testType === 'rebound';
@@ -498,7 +666,7 @@ export function analyze(track, opts = {}) {
     // incertezza (1σ) sugli istanti di stacco/atterraggio: ±0,35 fotogrammi (spread osservato tra modelli e risoluzioni
     // su video reale) combinata con il rumore dei piedi diviso la velocità della rampa
     const sE = (v) => Math.hypot(0.35 * sig.dt, isNum(v) && v > 0 ? det.sigma / v : 0) * (fl.fitTo && fl.fitTd ? 1 : 1.5);
-    const jump = describeJump(sig, { ...det, hip, Gpre: fl.Gpre, Gpost: fl.Gpost }, fl.to, fl.td, {
+    const jump = describeJump(sig, { ...det, hip, trunk, Gpre: fl.Gpre, Gpost: fl.Gpost }, fl.to, fl.td, {
       ...opts, contact, contactSource, boxCm, fitFailed: !fl.fitTo || !fl.fitTd, uncT: Math.hypot(sE(fl.vTo), sE(fl.vTd)),
     });
     jump.id = k + 1;
@@ -507,17 +675,17 @@ export function analyze(track, opts = {}) {
     jump.ground = { pre: fl.Gpre, post: fl.Gpost };
     jumps.push(jump);
   });
-  return { sig, det, hip, jumps };
+  return { sig, det, hip, trunk, jumps };
 }
 
 /** Ricalcola un salto dopo la correzione manuale degli eventi. */
 export function remeasure(result, to, td, opts = {}, contact = null) {
-  const { sig, det, hip } = result;
+  const { sig, det, hip, trunk } = result;
   const i0 = idxAt(sig, to), i1 = idxAt(sig, td);
   const m = Math.max(3, Math.round(0.1 / sig.dt));
   const Gpre = percentile(Array.from(det.u.slice(Math.max(0, i0 - m), i0 + 1)), 0.4);
   const Gpost = percentile(Array.from(det.u.slice(i1, Math.min(sig.n, i1 + m + 1))), 0.4);
-  return describeJump(sig, { ...det, hip, Gpre, Gpost }, to, td, { ...opts, contact, contactSource: contact != null ? 'manuale' : null });
+  return describeJump(sig, { ...det, hip, trunk, Gpre, Gpost }, to, td, { ...opts, contact, contactSource: contact != null ? 'manuale' : null });
 }
 
 /** Riepilogo per serie di rimbalzi. */

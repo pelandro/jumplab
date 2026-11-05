@@ -51,6 +51,32 @@ export const review = {
     const issuesBox = h('div');
     const seriesBox = h('div', { class: 'card hide' });
     const qualityBox = h('div', { class: 'card hide' });
+    const valBox = h('div', { class: 'card hide' });
+    // Validazione ibrida: tre metodi confrontati (mai mediati), livello di affidabilità motivato, incoerenze e metodo consigliato
+    const drawValidation = (j) => {
+      if (!j?.methods || uncal(j)) { valBox.classList.add('hide'); return; }
+      valBox.classList.remove('hide');
+      const v = j.verdict, lv = { coerenti: 'alta', parziale: 'media', incoerenti: 'bassa' }[v.status];
+      const val = (m) => (Number.isFinite(m.cm) ? `${L(m.cm).v.toFixed(1)}${Number.isFinite(m.uncCm) ? ' ± ' + L(m.uncCm).v.toFixed(1) : ''} ${L(0).u}` : 'non disponibile');
+      const row = (m) => h('details', { class: 'acc vm', style: { padding: '8px 0' } },
+        h('summary', {}, h('span', { class: 'vmn' }, m.nome, v.recommended === m.id ? h('i', { class: 'vrec' }, 'consigliato') : null),
+          h('span', { class: 'vmv num' }, val(m), h('em', { class: 'conf ' + m.level }, m.level)), ic('chev')),
+        h('div', { class: 'tiny', style: { margin: '6px 0 2px', lineHeight: 1.5 } },
+          ...m.pro.map((t) => h('div', { class: 'vpro' }, '✓ ' + t)), ...m.contro.map((t) => h('div', { class: 'vcon' }, '− ' + t))));
+      const rows = ['volo', 'baricentro', 'parabola'].map((id) => row(j.methods.find((m) => m.id === id)));
+      const ball = Number.isFinite(j.ballisticCm) ? L(j.ballisticCm) : null;
+      valBox.replaceChildren(
+        h('div', { class: 'row', style: { justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' } },
+          h('h3', { style: { margin: 0 } }, 'Validazione dei tre metodi'), h('span', { class: 'conf ' + lv }, v.titolo)),
+        h('p', { class: 'tiny muted', style: { margin: '0 0 6px' } }, 'I tre valori non si mediano: si confrontano con tolleranze fisiche.' + (v.recommended ? ` Da usare: ${j.methods.find((m) => m.id === v.recommended).nome.toLowerCase()} (${v.why}).` : ` ${v.why ? v.why[0].toUpperCase() + v.why.slice(1) + '.' : ''}`)),
+        ...rows,
+        ...v.flags.map((f) => h('div', { class: 'qrow warn' }, h('b', {}, '!'), h('div', {}, f.text))),
+        v.status !== 'coerenti' ? h('p', { class: 'tiny', style: { margin: '8px 0 0' } }, 'Per correggere: scorri i fotogrammi e usa «Stacco qui» / «Atterraggio qui»; tutto viene ricalcolato.') : null,
+        h('div', { class: 'vdist' },
+          h('div', {}, h('span', {}, 'Altezza balistica'), h('b', { class: 'num' }, ball ? `${ball.v.toFixed(1)} ${ball.u}` : '—'), h('small', {}, 'sopra la posizione dello stacco (v²/2g)')),
+          Number.isFinite(j.riseFromStartCm) ? h('div', {}, h('span', {}, 'Spostamento dal punto iniziale'), h('b', { class: 'num' }, `${L(j.riseFromStartCm).v.toFixed(1)} ${L(0).u}`),
+            h('small', {}, `baricentro massimo rispetto alla posizione in piedi (allo stacco è già +${L(j.takeoffRiseCm).v.toFixed(0)} ${L(0).u}); stima ±${L(j.riseFromStartUncCm).v.toFixed(0)}`)) : null));
+    };
     const drawQuality = () => {
       const q = session.quality;
       if (!q || !q.items?.length) { qualityBox.classList.add('hide'); return; }
@@ -178,7 +204,8 @@ export const review = {
       add('RSI mod (h/tempo)', fmt.num(j.rsiMod, 2), '', Number.isFinite(j.rsiMod));
       add('Profondità dip', fmt.num(L(j.dipCm).v, 1), L(0).u, Number.isFinite(j.dipCm) && TEST_TYPES[session.params.testType]?.needsDip);
       add('Tempo al decollo', fmt.ms(j.timeToTakeoff), 'ms', Number.isFinite(j.timeToTakeoff) && TEST_TYPES[session.params.testType]?.needsDip);
-      add('Velocità di stacco', fmt.num(j.v0, 2), 'm/s');
+      add('Velocità di stacco (da tempo di volo)', fmt.num(j.v0, 2), 'm/s');
+      add('Velocità di stacco (dal culmine del baricentro)', `${fmt.num(j.apexV0, 2)} ± ${fmt.num(j.apexV0Unc, 2)}`, 'm/s', Number.isFinite(j.apexV0) && !uncal(j));
       add('Pedana (stima)', fmt.num(L(j.boxCm).v, 0), L(0).u, Number.isFinite(j.boxCm));
       add('Forza media spinta', fmt.num(j.forceN, 0), 'N', Number.isFinite(j.forceN));
       add('Potenza media', fmt.num(j.powerW, 0), 'W', Number.isFinite(j.powerW));
@@ -188,6 +215,8 @@ export const review = {
       add('FT:CT (volo / tempo al decollo)', fmt.num(j.ftct, 2), '', Number.isFinite(j.ftct) && TEST_TYPES[session.params.testType]?.needsDip);
       add('Potenza di picco (Sayers 1999, equazione SJ)', fmt.num(j.sayersW, 0), 'W', Number.isFinite(j.sayersW));
       add('Altezza da velocità di stacco (stima)', `${fmt.num(L(j.apexCm).v, 1)} ± ${fmt.num(L(j.apexUncCm).v, 1)}`, L(0).u, Number.isFinite(j.apexCm) && !uncal(j));
+      add('Baricentro usato per il culmine', j.apexProxy ?? '—', '', Number.isFinite(j.apexCm) && !uncal(j));
+      add('Scarto tra i modi di stimare il baricentro', fmt.num(L(j.apexSpreadCm).v, 1), L(0).u, Number.isFinite(j.apexSpreadCm) && !uncal(j));
       add('Culmine rispetto a metà volo', `${j.apexAsymMs >= 0 ? '+' : ''}${fmt.num(j.apexAsymMs, 0)}`, 'ms', Number.isFinite(j.apexAsymMs) && !uncal(j));
       add('Risoluzione ±1 frame', '±' + fmt.num(L(j.frameCm).v, 1), L(0).u);
       if (Number.isFinite(j.uncCm) && Number.isFinite(j.frameCm) && !uncal(j)) {
@@ -203,6 +232,7 @@ export const review = {
       const notes = [];
       if (Number.isFinite(j.rsi)) notes.push('RSI = altezza (da tempo di volo) / contatto: confronta atleti diversi con cautela (sovrastima sotto 1,0, sottostima sopra 1,0 rispetto al calcolo da velocità di stacco).');
       if (Number.isFinite(j.forceN)) notes.push('Forza e potenza sono stime (Samozino 2008): dipendono da massa, altezza dell\'atleta e corsa di spinta misurata dal bacino. Utili per confrontare nel tempo, non come misura di laboratorio.');
+      drawValidation(j);
       metricsBox.replaceChildren(...m, ...(notes.length ? [h('p', { class: 'tiny faint', style: { margin: '10px 0 0' } }, notes.join(' '))] : []));
       issuesBox.replaceChildren(...j.issues.map((x) => h('div', { class: 'issue ' + x.level, html: icon(x.level === 'info' ? 'info' : 'alert') }, h('div', {}, x.text))));
       if (!j.issues.length) issuesBox.append(h('div', { class: 'issue info', html: icon('check') }, h('div', {}, 'Nessuna anomalia: tempi, traiettoria e visibilità dei piedi sono coerenti.')));
@@ -334,7 +364,7 @@ export const review = {
         c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
         thumb = c.toDataURL('image/jpeg', 0.7);
       } catch { /* miniatura facoltativa */ }
-      const pick = (j) => ({ to: j.to, td: j.td, T: j.T, heightCm: j.heightCm, contact: j.contact, rsi: j.rsi, rsiFlight: j.rsiFlight, rsiMod: j.rsiMod, dipCm: j.dipCm, v0: j.v0, boxCm: j.boxCm, forceN: j.forceN, powerW: j.powerW, sayersW: j.sayersW, confidence: j.confidence, manual: !!j.manual, uncCm: j.uncCm, heightCorrCm: j.heightCorrCm, apexCm: j.apexCm, apexUncCm: j.apexUncCm, refined: !!j.refined, ev: j.flow ? (j.flow.src.to === 'pixel' && j.flow.src.td === 'pixel' ? 'pixel' : 'misto') : 'landmark', ftct: j.ftct, forceRel: j.forceRel, powerRel: j.powerRel });
+      const pick = (j) => ({ to: j.to, td: j.td, T: j.T, heightCm: j.heightCm, contact: j.contact, rsi: j.rsi, rsiFlight: j.rsiFlight, rsiMod: j.rsiMod, dipCm: j.dipCm, v0: j.v0, boxCm: j.boxCm, forceN: j.forceN, powerW: j.powerW, sayersW: j.sayersW, confidence: j.confidence, manual: !!j.manual, uncCm: j.uncCm, heightCorrCm: j.heightCorrCm, apexCm: j.apexCm, apexUncCm: j.apexUncCm, apexAsymMs: j.apexAsymMs, apexProxy: j.apexProxy, apexSpreadCm: j.apexSpreadCm, apexV0: j.apexV0, apexV0Unc: j.apexV0Unc, geoCm: j.geoCm, geoUncCm: j.geoUncCm, ballisticCm: j.ballisticCm, riseFromStartCm: j.riseFromStartCm, takeoffRiseCm: j.takeoffRiseCm, val: j.verdict?.status, rec: j.verdict?.recommended, lvl: j.methods ? j.methods.map((m) => m.level[0]).join('') : '', refined: !!j.refined, ev: j.flow ? (j.flow.src.to === 'pixel' && j.flow.src.td === 'pixel' ? 'pixel' : 'misto') : 'landmark', ftct: j.ftct, forceRel: j.forceRel, powerRel: j.powerRel });
       const rec = {
         id: store.uid(), date: Date.now(), athleteId: ath.id, athleteName: ath.name, testType: session.params.testType, leg: S.leg, view: session.quality?.view || null, ver: VERSION,
         fileName: session.meta.name, fps: session.meta.fps, cal: session.cal, heightCm: session.params.heightCm,
@@ -352,7 +382,7 @@ export const review = {
         h('div', { class: 'row small muted', style: { marginTop: '8px', gap: '14px' } },
           h('span', {}, h('b', { style: { color: 'var(--accent)' } }, '━ '), 'piedi sopra il suolo'),
           h('span', {}, h('b', { style: { color: '#fff' } }, '━ '), 'bacino'))));
-    const right = h('div', { class: 'stack' }, bannerBox, qualityBox, hero, h('div', { class: 'card' }, h('h3', {}, 'Metriche'), metricsBox, issuesBox), seriesBox, settingsBox);
+    const right = h('div', { class: 'stack' }, bannerBox, qualityBox, hero, valBox, h('div', { class: 'card' }, h('h3', {}, 'Metriche'), metricsBox, issuesBox), seriesBox, settingsBox);
     root.append(pills, h('div', { class: 'cols', style: { marginTop: '12px' } }, left, right),
       h('div', { class: 'sticky' }, h('div', { class: 'in' },
         h('button', { class: 'btn', style: { flex: 1 }, onclick: async () => { if (await confirmSheet({ title: 'Scartare l’analisi?', text: 'Il risultato non verrà salvato.', ok: 'Scarta', danger: true })) { app.session = null; app.go('#/'); } } }, 'Scarta'),

@@ -159,3 +159,10 @@ html,body{touch-action:manipulation}
 button,.btn,.chip,.pill,.test,.infobtn,.ctrl,.seg,.item,summary,label,.tabbar,.stagebox,.hero,.metric,.top{touch-action:manipulation;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none}
 input,textarea,select,pre,.sel{-webkit-user-select:text;user-select:text}
 .stagebox canvas,.chartbox{touch-action:none}
+
+.vm summary{align-items:center;gap:8px}.vmn{font-size:13px;color:var(--text);font-weight:700}.vmv{display:flex;align-items:center;gap:8px;margin-left:auto;font-size:14px;color:var(--text)}
+.vmv .conf{padding:2px 8px;font-size:10px;font-style:normal}.vrec{margin-left:6px;font-size:10px;font-style:normal;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:var(--accent)}
+.vpro{color:var(--green)}.vcon{color:var(--muted)}
+.vdist{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}.vdist>div{background:var(--surface2);border:1px solid var(--line);border-radius:13px;padding:10px 11px;min-width:0}
+.vdist span{display:block;font-size:11px;color:var(--muted);font-weight:600}.vdist b{display:block;font-size:20px;margin-top:2px}.vdist small{display:block;font-size:11px;color:var(--muted);margin-top:2px;line-height:1.35}
+@media(max-width:420px){.vdist{grid-template-columns:1fr}}
