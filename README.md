@@ -57,6 +57,12 @@ Cloudflare Pages o Vercel come sito statico. Apri l'URL HTTPS su iPhone con Safa
 - Ripiego sul bacino quando i piedi non sono rilevati per brevi tratti.
 - Dettagli, misure e limiti in `VALIDAZIONE.md`.
 
+## Novità v4.8 (istanti più ripetibili, risultati più leggibili)
+
+- **Istanti di stacco e atterraggio dai pixel robusti alla finestra di tracciamento**: prima il volo poteva cambiare di 25–80 ms (4–14 cm) spostando l'inizio della finestra, e nell'app un salto dava +12 ms rispetto allo stesso salto in uno script esterno. Ora raffinamento locale + mediana su 18 stime: scarto app–script da 7 a 2,5 ms (rms), nessun bias sul sintetico. **Non è dimostrato che sia più accurato di una pedana** (nessuna pedana): è più riproducibile.
+- **Risultati**: metriche in sezioni con dettagli tecnici richiudibili; grafico dell'accordo tra i metodi; velocità verticale con le fasi e controllo della caduta libera; nello storico grafico con incertezza e **report condivisibile (immagine)**.
+- Fonti nuove lette (revisione di Xu et al. 2023, Aderinola et al.): la prior di Δ resta coerente con cinque studi. Dettagli e limiti in `VALIDAZIONE.md` (v4.8).
+
 ## Novità v4.7.2 (correzione e atterraggio dai pixel)
 
 - **Tolta la misura «statica» di Δ** (introdotta in 4.7.0): sui video reali non era indipendente dalla traiettoria e il suo errore dipendeva dal riferimento scelto (−7…+2 cm, fino a valori fisicamente impossibili). Il «risultato scomodo» riportato in 4.7.0 (due misure di Δ che divergono) era un difetto di quella misura, non dei dati: correzione completa in `VALIDAZIONE.md`. Ora Δ = traiettoria del baricentro + prior di popolazione; sui 4 salti del terzo atleta e sulla simulazione i numeri cambiano di meno di 1,5 cm.

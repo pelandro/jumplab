@@ -576,3 +576,41 @@ Da questi 4 salti (rigidi, Δ ≈ 0–3 cm) volo, parabola e integrata concordan
 
 **Resta non provato**: l'errore assoluto (nessuna pedana), le soglie dei falsi voli su altri atleti, il comportamento su iPhone (qui solo Chromium su CPU con video ricodificato; gli istanti reali dei file originali HEVC passano dallo stesso decodificatore WebCodecs in Safari ma non l'ho potuto provare).
 
+## v4.8 — istanti dai pixel robusti alla finestra, fonti nuove, risultati più leggibili
+
+Richiesta: rendere i modelli il più precisi possibile, cercare fonti, migliorare grafica e dati mostrati. Ordine seguito: prima **misurare dove sta l'errore**, poi intervenire solo dove i dati lo giustificano.
+
+### 1. Dove sta l'errore (misurato sui 4 salti reali, 8 analisi)
+Componenti dell'incertezza sul tempo del culmine (ms): rumore dell'adattamento **0,2–0,4**, scelta della finestra **0,3–1,2**, scarto tra i modi di stimare il baricentro **0,1–1,4**; l'incertezza dichiarata (3,0–3,5 ms) è dominata dal minimo fisso di 3 ms. Quindi **il rumore del baricentro non è il fattore limitante** e un tracciamento del busto dai pixel (che stavo valutando di costruire) non servirebbe: l'incertezza di Δ (2–3 cm) viene dagli istanti di stacco e atterraggio, che entrano con peso g·T/2. L'errore da ridurre è quello degli istanti.
+
+### 2. Difetto trovato: gli istanti dai pixel dipendevano da dove cadeva la finestra
+Il video 4 (frontale) in app dava 540 ms contro 527–532 ms nelle prove con script esterni sullo stesso salto: +12 ms (≈ 2 cm). Causa: i landmark davano l'atterraggio a 2,306 s (100 ms oltre il vero ≈ 2,20 s) e la finestra del tracciamento partiva da 150 ms prima di quella stima: restava solo ~45 ms di discesa prima del contatto, un piede su due non superava i controlli e l'atterraggio veniva dall'altro piede. Provando su 4 salti × 2 insiemi di landmark, **spostando di 0,10–0,20 s l'inizio della finestra l'adattamento globale dava voli diversi di 25–80 ms (4–14 cm)**, anche con tutti i controlli superati. Le prove precedenti (script con la finestra standard) avevano la stima dei landmark abbastanza vicina e non lo mostravano.
+Correzioni (`footflow.js`):
+- **Raffinamento locale** dell'evento: dopo l'adattamento globale si ripete l'adattamento in un intorno (0,08 s dal lato suolo, 0,12 s dal lato rampa, almeno 5–7 campioni anche a passo lungo), fino a convergenza. Spostando l'inizio della finestra il volo varia di 5–25 ms invece di 25–80.
+- **Mediana su 18 stime** (3 finestre × passo nativo / 1 su 2 / 1 su 3): l'intervallo tra 10° e 90° percentile è la ripetibilità. Con passo > 10,5 ms si varia solo la finestra (3 stime). Le stime si eseguono una alla volta cedendo il controllo all'interfaccia.
+- Tolleranza tra pixel e landmark portata da 120 a 160 ms (landmark osservati in ritardo fino a +110 ms; non validato oltre).
+
+Effetto (tempo di volo in ms; script esterni a passo 4,2 ms con landmark Heavy+specchio / Full e app sul video intero):
+| Salto | script hf / fb | |hf−fb| | app 4.7.2 | **app 4.8** | app − script |
+|---|---|---|---|---|---|
+| 1 frontale | 525,6 / 524,8 | 0,8 | 540,3 | **528,5** | +3,3 |
+| 2 laterale | 569,8 / 568,8 | 1,0 | 564,3 | **567,6** | −1,7 |
+| 3 laterale | 569,1 / 565,9 | 3,2 | 568,7 | **566,4** | −1,1 |
+| 4 frontale | 561,7 / 562,6 | 0,9 | 569,6 | **565,2** | +3,0 |
+- Scarto tra app e script: **da 7 ms (rms) a 2,5 ms**; tra i due insiemi di landmark da 2,9–4,3 ms a 0,8–3,2 ms; il salto 3 con Heavy, prima senza atterraggio dai pixel, ora è trovato. Falsi voli (persona ferma, colpi di tallone): i pixel non trovano eventi, come deve.
+- **Verità nota (simulazione)**: nessun bias introdotto (errore 0,1–0,2 ms a 60–240 fps); con landmark sbagliati di −80…+130 ms gli istanti sono trovati con errore ≤ 0,4 ms a 120 e 240 fps (nuovo test).
+- **Non è noto quale valore sia il più vicino al vero** (nessuna pedana): la versione 4.8 è più riproducibile, non dimostrata più accurata. Rispetto alla 4.7.2 le altezze integrate in app cambiano di −0,1…−0,9 cm (34,1→33,2; 38,1→38,0; 38,3→37,9; 39,3→38,8), perché il volo misurato è più breve nei salti 1, 3 e 4 (4.8: 528,5 / 567,6 / 566,4 / 565,2 ms contro 540,3 / 564,3 / 568,7 / 569,6).
+Risultati dell'app (4.8) sui 4 salti: volo 34,2 / 39,5 / 39,3 / 39,2 cm; parabola 33,6 / 38,1 / 38,1 / 39,7; **integrata 33,2 ± 1,9 / 38,0 ± 1,7 / 37,9 ± 1,5 / 38,8 ± 1,8 cm**; Δ dalla traiettoria 1,3 / 2,8 / 2,5 / −1,1 cm.
+
+### 3. Fonti nuove (testi completi letti via l'API BioC di NCBI, salvo dove indicato)
+- **Xu et al., revisione sistematica (Sports Med 2023, PMC10115716)**: distingue l'altezza **dal punto di stacco** (tempo di volo e impulso-quantità di moto, JH-2) da quella **dalla posizione in piedi** (doppia integrazione, spostamento del baricentro, JH-1): la seconda è più alta perché al decollo il baricentro è già più in alto (flessione plantare). È la distinzione già presente nell'app (altezza balistica contro spostamento dal punto iniziale). Il tempo di volo sovrastima perché si atterra con il baricentro più basso (gambe flesse): differenze volo − impulso riportate: Moir 3–4 % (uomini 0,36 contro 0,35 m, donne 0,22 contro 0,21 m), Reeve e Tyler **+2,42 ± 0,31 cm**, Aragón 0,402 contro 0,361 m (**+4,1 cm**). Con Aleksic (+1,1 cm) le cinque differenze danno **Δ = 2 × differenza = 2,0 / 2,0 / 2,2 / 4,8 / 8,2 cm** (media 3,8, mediana 2,2, dev. st. 2,7 tra studi): **la prior Δ = 3,5 ± 4 cm resta coerente** e non è stata modificata (valori dei primi tre studi di seconda mano, dal testo della revisione).
+- **Aderinola et al. (smartphone singolo, OpenPose a 30 fps, PMC10249733)**: altezza da spostamento del metatarso, scala dalla caduta libera (la stessa idea del nostro controllo curvatura/g); limiti di accordo contro le pedane **−6,7…+3,1 cm**, e i tempi di volo e di contatto «da scarsi a moderati» a 30 fps. Nessun confronto diretto con i nostri 240 fps e istanti dai pixel.
+- **Solo riassunti (non letti nel testo)**: Wade et al. 2020 (miglioramento del volo con una costante di sollevamento del tallone scalata sull'antropometria, per l'altezza dalla posizione in piedi: non implementato), Eythorsdottir et al. 2024 (le quattro equazioni delle pedane possono differire di ~15 cm sullo stesso salto: coerente con il mostrare due definizioni).
+
+### 4. Interfaccia e dati mostrati
+- **Metriche in sezioni** (altezza e velocità, fasi, forza e potenza, reattività) e **dettagli tecnici richiudibili** (Δ, baricentro usato, risoluzione, errore per origine, fonte degli istanti).
+- **Grafico dell'accordo tra i metodi** (barre ±1σ su un asse comune) nei risultati e nelle schede dello storico.
+- **Velocità verticale con le fasi** (discesa, spinta, volo) e la caduta libera attesa tratteggiata: controllo visivo che in volo la pendenza sia −g (sul sintetico lo scarto a un quarto del volo è < 0,3 m/s). **Limite dichiarato**: attorno allo stacco la curva dei landmark supera la velocità del baricentro (sui 4 salti reali il picco è ~1 m/s sopra il valore balistico, come la testa degli AirPods), quindi non è una curva di forza né dà la velocità di stacco: questa è il punto verde, ricavato dal volo.
+- **Storico**: grafico con griglia, media, barre di incertezza e incertezza accanto a ogni valore; **report condivisibile** (immagine con risultato ± incertezza, accordo tra i metodi, tabella dei salti e avvertenza che non c'è confronto con pedana).
+- Test: 194 controlli, nessun KO (nuovi: finestra/landmark sbagliati, fusione degli eventi, curva del baricentro, grafici).
+

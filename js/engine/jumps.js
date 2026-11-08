@@ -659,6 +659,29 @@ export function describeJump(sig, cache, to, td, ctx = {}) {
   return j;
 }
 
+/**
+ * Curva del baricentro per il grafico delle fasi: posizione (cm, rispetto alla posizione in piedi) e velocità verticale (m/s, su = positivo) dal
+ * contromovimento fino a dopo l'atterraggio, con il baricentro a corpo intero se gli arti sono osservabili (altrimenti tronco). È una
+ * ricostruzione dai landmark, lisciata: serve a vedere le fasi e a controllare a colpo d'occhio che in volo la velocità scenda con pendenza −g (caduta
+ * libera). NON dà la velocità di stacco: attorno allo stacco i punti del busto salgono più del baricentro (nei 4 salti reali il picco è ~1 m/s sopra il
+ * valore balistico; coerente con la testa degli AirPods, 3,5–3,8 m/s contro ~2,7) e nel sintetico la lisciatura lo abbassa del 12 %. Il valore da usare
+ * è quello ricavato dalla fase di volo (stima integrata).
+ */
+export function jumpCurve(result, j, heightM) {
+  const { sig, trunk } = result || {};
+  if (!sig || !trunk || !(heightM > 0)) return null;
+  const { t, dt } = sig, i0 = idxAt(sig, j.to), i1 = idxAt(sig, j.td);
+  const lo = Math.max(0, i0 - Math.round(2.5 / dt)), hi = Math.min(sig.n - 1, i1 + Math.round(0.6 / dt));
+  const cs = comSignal(sig, trunk, lo, hi);
+  const src = cs || trunk, name = cs ? 'corpo intero' : 'tronco';
+  const fhPerM = sig.bodyH / heightM;
+  const refI = idxAt(sig, isNum(j.onsetT) ? j.onsetT - 0.15 : j.to - 1.0), refJ = idxAt(sig, isNum(j.onsetT) ? j.onsetT : j.to - 0.5);
+  const ref = median(Array.from(src.sm.slice(refI, Math.max(refI + 1, refJ) + 1)).filter(isNum));
+  const out = { t: [], y: [], v: [], name, from: t[lo], to: t[hi] };
+  for (let i = lo; i <= hi; i++) { out.t.push(t[i]); out.y.push(isNum(src.sm[i]) ? ((src.sm[i] - ref) / fhPerM) * 100 : NaN); out.v.push(isNum(src.vel[i]) ? src.vel[i] / fhPerM : NaN); }
+  return out;
+}
+
 /** Valori che dipendono dall'altezza scelta come principale (integrata o tempo di volo): RSI, forza e potenza di Samozino, velocità media. */
 export function refreshDerived(j) {
   const useBest = Number.isFinite(j.bestCm) && j.headline !== 'flight';

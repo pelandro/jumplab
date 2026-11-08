@@ -87,7 +87,7 @@ function comMethods(j) {
     p.score = clamp01(p.score); p.level = levelOf(p.score);
   }
   // 2. spostamento del baricentro con la scala (spazio)
-  const g = { id: 'baricentro', nome: 'Spostamento del baricentro (scala)', cm: j.geoCm, uncCm: j.geoUncCm, score: 0.9, pro: [], contro: [] };
+  const g = { id: 'baricentro', nome: 'Baricentro (spazio)', cm: j.geoCm, uncCm: j.geoUncCm, score: 0.9, pro: [], contro: [] };
   if (!have || !fin(j.geoCm)) {
     g.score = 0; g.level = 'bassa'; g.nonDisponibile = true; g.contro.push('traiettoria del baricentro non disponibile');
   } else {

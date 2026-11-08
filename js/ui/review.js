@@ -2,7 +2,8 @@
 
 import { h, icon, ic, fmt, toast, confirmSheet } from './dom.js';
 import { store } from '../store.js';
-import { TEST_TYPES, summarizeSeries, finalizeJump } from '../engine/jumps.js';
+import { TEST_TYPES, summarizeSeries, finalizeJump, jumpCurve } from '../engine/jumps.js';
+import { agreementPlot, velocityPlot } from './viz.js';
 import { openGuide } from './guide.js';
 import { VERSION } from '../store.js';
 import { reanalyze, editJump, addJump } from '../engine/pipeline.js';
@@ -48,7 +49,7 @@ export const review = {
     const stage = h('div', { class: 'stagebox' }, canvas, badge, tcode);
     const pills = h('div', { class: 'pills' });
     const hero = h('div', { class: 'card' });
-    const metricsBox = h('div', { class: 'metrics' });
+    const metricsBox = h('div');
     const issuesBox = h('div');
     const seriesBox = h('div', { class: 'card hide' });
     const qualityBox = h('div', { class: 'card hide' });
@@ -70,6 +71,7 @@ export const review = {
         h('div', { class: 'row', style: { justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' } },
           h('h3', { style: { margin: 0 } }, 'Validazione dei metodi'), h('span', { class: 'conf ' + lv }, v.titolo)),
         h('p', { class: 'tiny muted', style: { margin: '0 0 6px' } }, 'La stima integrata non è una media: corregge il tempo di volo con la parte misurabile della traiettoria del baricentro, pesata per affidabilità; gli altri metodi la controllano.' + (v.recommended ? ` Da usare: ${j.methods.find((m) => m.id === v.recommended).nome.toLowerCase()} (${v.why}).` : ` ${v.why ? v.why[0].toUpperCase() + v.why.slice(1) + '.' : ''}`)),
+        h('div', { class: 'plotbox', html: agreementPlot(j.methods, { conv: (x) => L(x).v, unit: L(0).u, recommended: v.recommended }) }),
         ...rows,
         ...v.flags.map((f) => h('div', { class: 'qrow warn' }, h('b', {}, '!'), h('div', {}, f.text))),
         v.status !== 'coerenti' ? h('p', { class: 'tiny', style: { margin: '8px 0 0' } }, 'Per correggere: scorri i fotogrammi e usa «Stacco qui» / «Atterraggio qui»; tutto viene ricalcolato.') : null,
@@ -91,6 +93,7 @@ export const review = {
           h('button', { class: 'btn sm ghost', style: { marginTop: '10px' }, onclick: () => openGuide(session.params?.testType || 'general') }, ic('info'), 'Come migliorare la ripresa')));
     };
     const chartBox = h('div', { class: 'chartbox' });
+    const velBox = h('div', { class: 'card hide' });
     const frameInfo = h('div', { class: 'small muted num', style: { textAlign: 'center', margin: '8px 0 2px' } });
     const bannerBox = h('div');
 
@@ -169,15 +172,30 @@ export const review = {
       refresh(true);
     }
 
+    // Velocità verticale del baricentro con le fasi e la caduta libera attesa (controllo visivo della balistica)
+    const drawVelocity = (j) => {
+      const res = resOf(j);
+      let svg = '', curve = null;
+      try { curve = !uncal(j) && res ? jumpCurve(res, j, heightM()) : null; svg = curve ? velocityPlot(curve, j) : ''; } catch { svg = ''; }
+      if (!svg) { velBox.classList.add('hide'); return; }
+      velBox.classList.remove('hide');
+      velBox.replaceChildren(h('h3', {}, 'Velocità verticale e fasi'), h('div', { class: 'plotbox', html: svg }),
+        h('div', { class: 'row small muted', style: { gap: '14px', flexWrap: 'wrap' } },
+          h('span', {}, h('b', { style: { color: '#fff' } }, '━ '), `velocità misurata (baricentro: ${curve.name})`),
+          h('span', {}, h('b', { style: { color: 'var(--accent)' } }, '╍ '), 'caduta libera attesa in volo (v₀ − g·t)')),
+        h('p', { class: 'tiny faint', style: { margin: '8px 0 0' } }, 'Velocità verticale ricostruita dai landmark (busto e arti) e lisciata: serve a vedere le fasi e a controllare che in volo la pendenza sia −g. Attorno allo stacco può superare la velocità del baricentro (anche di ~1 m/s: il busto si raddrizza) e non è una curva di forza; il valore da usare è il punto verde, ricavato dalla fase di volo.'));
+    };
+
     function refresh(full = true) {
       const j = cur();
       if (!j) return;
+      drawVelocity(j);
       player.ground = mean2(j.ground?.pre, j.ground?.post);
       player.draw();
       chart.set(chartData(j));
       // pills
       pills.replaceChildren(...jumps().map((x, i) => h('button', { class: 'pill' + (i === selIdx ? ' sel' : '') + (x.excluded ? ' off' : ''), onclick: () => select(i) },
-        `Salto ${i + 1}`, h('small', { class: 'num' }, `${uncal(x) ? '—' : L(hd(x)).v.toFixed(1) + ' ' + L(hd(x)).u}${x.manual ? ' · man.' : ''}`))),
+        `Salto ${i + 1}`, h('small', { class: 'num' }, x.excluded && x.autoExcluded ? 'escluso' : `${uncal(x) ? '—' : L(hd(x)).v.toFixed(1) + ' ' + L(hd(x)).u}${x.manual ? ' · man.' : ''}`))),
         h('button', { class: 'pill', style: { minWidth: '56px', color: 'var(--accent)' }, onclick: addManual }, ic('plus'), h('small', {}, 'Aggiungi')));
       // hero
       const hh = L(hd(j));
@@ -197,45 +215,49 @@ export const review = {
           h('button', { class: 'btn sm ghost', onclick: () => { j.excluded = !j.excluded; j.userSet = true; j.autoExcluded = false; refresh(); } }, ic(j.excluded ? 'plus' : 'close'), j.excluded ? 'Includi nel risultato' : 'Escludi salto'),
           Number.isFinite(j.bestCm) ? h('button', { class: 'btn sm ghost', onclick: () => { const to = integ ? 'flight' : 'integrated'; store.s.settings.headline = to; store.save(); for (const x of session.jumps) { x.headline = to; finalizeJump(x); } refresh(); } }, ic('info'), integ ? 'Mostra il tempo di volo' : 'Mostra la stima integrata') : null,
           jumps().length > 1 ? h('button', { class: 'btn sm ghost', onclick: () => removeJump() }, ic('trash'), 'Elimina') : null));
-      // metriche
-      const m = [];
-      const add = (label, v, unit = '', show = true) => { if (show && v !== '—' && v !== undefined) m.push(h('div', { class: 'metric' }, h('span', {}, label), h('b', { class: 'num' }, v, unit ? h('small', {}, ' ' + unit) : null))); };
-      add('Tempo di volo', fmt.ms(j.T), 'ms');
-      add('Contatto al suolo', fmt.ms(j.contact), 'ms', Number.isFinite(j.contact));
-      add('RSI (h/GCT)', fmt.num(j.rsi, 2), '', Number.isFinite(j.rsi));
-      add('RSI-flight (TV/GCT)', fmt.num(j.rsiFlight, 2), '', Number.isFinite(j.rsiFlight));
-      add('RSI mod (h/tempo)', fmt.num(j.rsiMod, 2), '', Number.isFinite(j.rsiMod));
-      add('Profondità dip', fmt.num(L(j.dipCm).v, 1), L(0).u, Number.isFinite(j.dipCm) && TEST_TYPES[session.params.testType]?.needsDip);
-      add('Tempo al decollo', fmt.ms(j.timeToTakeoff), 'ms', Number.isFinite(j.timeToTakeoff) && TEST_TYPES[session.params.testType]?.needsDip);
-      add('Altezza dal tempo di volo', fmt.num(L(j.heightCm).v, 1), L(0).u, !uncal(j) && j.hUseSource === 'integrata');
-      add('Baricentro all\'atterraggio più basso dello stacco', Number.isFinite(j.landDeltaCm) ? `${fmt.num(L(j.landDeltaCm).v, 1)} ± ${fmt.num(L(j.landDeltaUncCm).v, 1)}` : '—', L(0).u, Number.isFinite(j.landDeltaCm) && !uncal(j));
-      add('Δ dalla traiettoria del baricentro', Number.isFinite(j.landDeltaMeasCm) ? fmt.num(L(j.landDeltaMeasCm).v, 1) : '—', L(0).u, Number.isFinite(j.landDeltaMeasCm) && !uncal(j));
-      add('Velocità di stacco (stima integrata)', Number.isFinite(j.bestV0) ? `${fmt.num(j.bestV0, 2)} ± ${fmt.num(j.bestV0Unc, 2)}` : '—', 'm/s', Number.isFinite(j.bestV0) && !uncal(j));
-      add('Velocità di stacco (da tempo di volo)', fmt.num(j.v0, 2), 'm/s');
-      add('Velocità di stacco (dal culmine del baricentro)', `${fmt.num(j.apexV0, 2)} ± ${fmt.num(j.apexV0Unc, 2)}`, 'm/s', Number.isFinite(j.apexV0) && !uncal(j));
-      add('Pedana (stima)', fmt.num(L(j.boxCm).v, 0), L(0).u, Number.isFinite(j.boxCm));
-      add('Forza media spinta', fmt.num(j.forceN, 0), 'N', Number.isFinite(j.forceN));
-      add('Potenza media', fmt.num(j.powerW, 0), 'W', Number.isFinite(j.powerW));
-      add('Forza media (per kg)', fmt.num(j.forceRel, 1), 'N/kg', Number.isFinite(j.forceRel));
-      add('Potenza media (per kg)', fmt.num(j.powerRel, 1), 'W/kg', Number.isFinite(j.powerRel));
-      add('Velocità media di spinta', fmt.num(j.vMean, 2), 'm/s', Number.isFinite(j.vMean) && Number.isFinite(j.forceN));
-      add('FT:CT (volo / tempo al decollo)', fmt.num(j.ftct, 2), '', Number.isFinite(j.ftct) && TEST_TYPES[session.params.testType]?.needsDip);
-      add('Potenza di picco (Sayers 1999, equazione SJ)', fmt.num(j.sayersW, 0), 'W', Number.isFinite(j.sayersW));
-      add('Altezza da velocità di stacco (stima)', `${fmt.num(L(j.apexCm).v, 1)} ± ${fmt.num(L(j.apexUncCm).v, 1)}`, L(0).u, Number.isFinite(j.apexCm) && !uncal(j));
-      add('Baricentro usato per il culmine', j.apexProxy ?? '—', '', Number.isFinite(j.apexCm) && !uncal(j));
-      add('Scarto tra i modi di stimare il baricentro', fmt.num(L(j.apexSpreadCm).v, 1), L(0).u, Number.isFinite(j.apexSpreadCm) && !uncal(j));
-      add('Culmine rispetto a metà volo', `${j.apexAsymMs >= 0 ? '+' : ''}${fmt.num(j.apexAsymMs, 0)}`, 'ms', Number.isFinite(j.apexAsymMs) && !uncal(j));
-      add('Risoluzione ±1 frame', '±' + fmt.num(L(j.frameCm).v, 1), L(0).u);
+      // metriche, raggruppate: ciò che serve a leggere il salto in alto, i dettagli tecnici (incertezze, baricentro, fonte degli istanti) in fondo
+      const G = { main: [], phases: [], power: [], react: [], tech: [] };
+      const add = (grp, label, v, unit = '', show = true) => { if (show && v !== '—' && v !== undefined) G[grp].push(h('div', { class: 'metric' }, h('span', {}, label), h('b', { class: 'num', style: String(v).length > 7 ? { fontSize: '16px', lineHeight: 1.25 } : null }, v, unit ? h('small', {}, ' ' + unit) : null))); };
+      const cmj = !!TEST_TYPES[session.params.testType]?.needsDip;
+      add('main', 'Tempo di volo', fmt.ms(j.T), 'ms');
+      add('main', 'Altezza dal tempo di volo', fmt.num(L(j.heightCm).v, 1), L(0).u, !uncal(j) && j.hUseSource === 'integrata');
+      add('main', 'Velocità di stacco', Number.isFinite(j.bestV0) ? `${fmt.num(j.bestV0, 2)} ± ${fmt.num(j.bestV0Unc, 2)}` : '—', 'm/s', Number.isFinite(j.bestV0) && !uncal(j));
+      add('main', 'Vel. di stacco da tempo di volo', fmt.num(j.v0, 2), 'm/s');
+      add('main', 'Pedana (stima)', fmt.num(L(j.boxCm).v, 0), L(0).u, Number.isFinite(j.boxCm));
+      add('phases', 'Profondità dip', fmt.num(L(j.dipCm).v, 1), L(0).u, Number.isFinite(j.dipCm) && cmj);
+      add('phases', 'Tempo al decollo', fmt.ms(j.timeToTakeoff), 'ms', Number.isFinite(j.timeToTakeoff) && cmj);
+      add('phases', 'FT:CT (volo / tempo al decollo)', fmt.num(j.ftct, 2), '', Number.isFinite(j.ftct) && cmj);
+      add('phases', 'Velocità media di spinta', fmt.num(j.vMean, 2), 'm/s', Number.isFinite(j.vMean) && Number.isFinite(j.forceN));
+      add('power', 'Forza media spinta', fmt.num(j.forceN, 0), 'N', Number.isFinite(j.forceN));
+      add('power', 'Potenza media', fmt.num(j.powerW, 0), 'W', Number.isFinite(j.powerW));
+      add('power', 'Forza media (per kg)', fmt.num(j.forceRel, 1), 'N/kg', Number.isFinite(j.forceRel));
+      add('power', 'Potenza media (per kg)', fmt.num(j.powerRel, 1), 'W/kg', Number.isFinite(j.powerRel));
+      add('power', 'Potenza di picco (Sayers 1999, equazione SJ)', fmt.num(j.sayersW, 0), 'W', Number.isFinite(j.sayersW));
+      add('react', 'Contatto al suolo', fmt.ms(j.contact), 'ms', Number.isFinite(j.contact));
+      add('react', 'RSI (h/GCT)', fmt.num(j.rsi, 2), '', Number.isFinite(j.rsi));
+      add('react', 'RSI-flight (TV/GCT)', fmt.num(j.rsiFlight, 2), '', Number.isFinite(j.rsiFlight));
+      add('react', 'RSI mod (h/tempo)', fmt.num(j.rsiMod, 2), '', Number.isFinite(j.rsiMod));
+      add('tech', 'Baricentro all\'atterraggio più basso dello stacco', Number.isFinite(j.landDeltaCm) ? `${fmt.num(L(j.landDeltaCm).v, 1)} ± ${fmt.num(L(j.landDeltaUncCm).v, 1)}` : '—', L(0).u, Number.isFinite(j.landDeltaCm) && !uncal(j));
+      add('tech', 'Δ dalla traiettoria del baricentro', Number.isFinite(j.landDeltaMeasCm) ? fmt.num(L(j.landDeltaMeasCm).v, 1) : '—', L(0).u, Number.isFinite(j.landDeltaMeasCm) && !uncal(j));
+      add('tech', 'Velocità di stacco (dal culmine del baricentro)', `${fmt.num(j.apexV0, 2)} ± ${fmt.num(j.apexV0Unc, 2)}`, 'm/s', Number.isFinite(j.apexV0) && !uncal(j));
+      add('tech', 'Altezza da velocità di stacco (stima)', `${fmt.num(L(j.apexCm).v, 1)} ± ${fmt.num(L(j.apexUncCm).v, 1)}`, L(0).u, Number.isFinite(j.apexCm) && !uncal(j));
+      add('tech', 'Baricentro usato per il culmine', j.apexProxy ?? '—', '', Number.isFinite(j.apexCm) && !uncal(j));
+      add('tech', 'Scarto tra i modi di stimare il baricentro', fmt.num(L(j.apexSpreadCm).v, 1), L(0).u, Number.isFinite(j.apexSpreadCm) && !uncal(j));
+      add('tech', 'Culmine rispetto a metà volo', `${j.apexAsymMs >= 0 ? '+' : ''}${fmt.num(j.apexAsymMs, 0)}`, 'ms', Number.isFinite(j.apexAsymMs) && !uncal(j));
+      add('tech', 'Risoluzione ±1 frame', '±' + fmt.num(L(j.frameCm).v, 1), L(0).u);
       if (Number.isFinite(j.uncCm) && Number.isFinite(j.frameCm) && !uncal(j)) {
         // errore atteso diviso per origine: frame rate (quantizzazione, σ = 0,41·(±1 fotogramma)), rilevazione (modello/pixel, residuo), sistematico (postura)
         const sFr = 0.408 * j.frameCm, sDet = Math.sqrt(Math.max(0, j.uncCm * j.uncCm - sFr * sFr));
         const sys = Number.isFinite(j.heightCorrCm) ? Math.max(0, j.heightCm - j.heightCorrCm) : NaN;
-        m.push(h('div', { class: 'metric', style: { gridColumn: '1 / -1' } }, h('span', {}, 'Errore atteso (1σ) per origine'),
+        G.tech.push(h('div', { class: 'metric', style: { gridColumn: '1 / -1' } }, h('span', {}, 'Errore atteso (1σ) per origine'),
           h('b', { class: 'num', style: { fontSize: '13px', lineHeight: 1.5 } },
             `frame rate ±${fmt.num(L(sFr).v, 1)} · rilevazione ±${fmt.num(L(sDet).v, 1)} ${L(0).u}`, Number.isFinite(sys) && sys > 0.3 ? ` · sistematico: fino a +${fmt.num(L(sys).v, 1)} ${L(0).u} (postura)` : '')));
       }
-      add('Stacco / atterraggio rilevati da', j.flow ? `${j.flow.src.to === 'pixel' ? 'pixel' : 'landmark'} / ${j.flow.src.td === 'pixel' ? 'pixel' : 'landmark'}` : 'landmark', '', !j.manual);
-      add('Altezza corretta per postura', fmt.num(L(j.heightCorrCm).v, 1), L(0).u, Number.isFinite(j.heightCorrCm) && (j.issues || []).some((x) => x.code === 'landflex'));
+      add('tech', 'Stacco / atterraggio rilevati da', j.flow ? `${j.flow.src.to === 'pixel' ? 'pixel' : 'landmark'} / ${j.flow.src.td === 'pixel' ? 'pixel' : 'landmark'}` : 'landmark', '', !j.manual);
+      add('tech', 'Altezza corretta per postura', fmt.num(L(j.heightCorrCm).v, 1), L(0).u, Number.isFinite(j.heightCorrCm) && (j.issues || []).some((x) => x.code === 'landflex'));
+      const section = (title, arr) => (arr.length ? [h('div', { class: 'msec' }, title), h('div', { class: 'metrics' }, ...arr)] : []);
+      const m = [...section('Altezza e velocità', G.main), ...section('Fasi del salto', G.phases), ...section('Forza e potenza (stime)', G.power), ...section('Reattività', G.react),
+        ...(G.tech.length ? [h('details', { class: 'acc msecd' }, h('summary', {}, h('span', {}, 'Dettagli tecnici e incertezze'), ic('chev')), h('div', { class: 'metrics', style: { marginTop: '8px' } }, ...G.tech))] : [])];
       const notes = [];
       if (Number.isFinite(j.rsi)) notes.push('RSI = altezza (da tempo di volo) / contatto: confronta atleti diversi con cautela (sovrastima sotto 1,0, sottostima sopra 1,0 rispetto al calcolo da velocità di stacco).');
       if (Number.isFinite(j.forceN)) notes.push('Forza e potenza sono stime (Samozino 2008): dipendono da massa, altezza dell\'atleta e corsa di spinta misurata dal bacino. Utili per confrontare nel tempo, non come misura di laboratorio.');
@@ -403,7 +425,8 @@ export const review = {
       h('div', { class: 'card' }, h('h3', {}, 'Traiettoria · trascina i cursori per correggere'), chartBox,
         h('div', { class: 'row small muted', style: { marginTop: '8px', gap: '14px' } },
           h('span', {}, h('b', { style: { color: 'var(--accent)' } }, '━ '), 'piedi sopra il suolo'),
-          h('span', {}, h('b', { style: { color: '#fff' } }, '━ '), 'bacino'))));
+          h('span', {}, h('b', { style: { color: '#fff' } }, '━ '), 'bacino'))),
+      velBox);
     const right = h('div', { class: 'stack' }, bannerBox, qualityBox, hero, valBox, h('div', { class: 'card' }, h('h3', {}, 'Metriche'), metricsBox, issuesBox), seriesBox, settingsBox);
     root.append(pills, h('div', { class: 'cols', style: { marginTop: '12px' } }, left, right),
       h('div', { class: 'sticky' }, h('div', { class: 'in' },

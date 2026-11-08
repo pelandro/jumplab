@@ -1,6 +1,7 @@
 import { h, icon, ic, fmt, toast, confirmSheet, downloadFile, put } from './dom.js';
 import { store } from '../store.js';
 import { TEST_TYPES } from '../engine/jumps.js';
+import { agreementPlot } from './viz.js';
 
 const csvRows = (sessions) => {
   const head = ['data', 'atleta', 'test', 'salto', 'altezza_cm', 'volo_ms', 'contatto_ms', 'rsi', 'rsi_flight', 'rsi_mod', 'dip_cm', 'v_stacco_ms', 'pedana_cm', 'forza_N', 'potenza_W', 'affidabilita', 'incertezza_cm', 'altezza_corretta_cm', 'rifinito', 'ftct', 'forza_N_kg', 'potenza_W_kg', 'inquadratura', 'gamba', 'versione', 'eventi', 'altezza_vel_stacco_cm', 'inc_vel_stacco_cm', 'baricentro_culmine', 'v_stacco_culmine_ms', 'altezza_geometrica_cm', 'altezza_balistica_cm', 'spostamento_da_inizio_cm', 'validazione', 'metodo_consigliato', 'livelli_volo_spazio_parabola', 'altezza_volo_cm', 'altezza_integrata_cm', 'inc_integrata_cm', 'baricentro_atterraggio_cm', 'fonte_altezza', 'delta_traiettoria_cm', 'delta_statico_cm'];
@@ -14,20 +15,34 @@ const csvRows = (sessions) => {
 };
 
 function lineChart(points, units) {
-  const W = 520, H = 150, pad = 26;
-  const ys = points.map((p) => p.v), lo = Math.min(...ys), hi = Math.max(...ys);
-  const span = Math.max(hi - lo, 1), l = lo - span * 0.2, u = hi + span * 0.2;
-  const X = (i) => pad + (points.length === 1 ? (W - 2 * pad) / 2 : (i / (points.length - 1)) * (W - 2 * pad));
-  const Y = (v) => H - 20 - ((v - l) / (u - l)) * (H - 40);
+  const W = 520, H = 190, L = 40, R = 14, T = 16, B = 26;
+  const lo0 = Math.min(...points.map((p) => p.v - (p.unc || 0))), hi0 = Math.max(...points.map((p) => p.v + (p.unc || 0)));
+  const span0 = Math.max(hi0 - lo0, units === 'in' ? 1.2 : 3), pad = span0 * 0.15;
+  const raw = (span0 + 2 * pad) / 4, k = Math.pow(10, Math.floor(Math.log10(raw))), f = raw / k, step = (f < 1.5 ? 1 : f < 3.5 ? 2 : f < 7.5 ? 5 : 10) * k;
+  const lo = Math.floor((lo0 - pad) / step) * step, hi = Math.ceil((hi0 + pad) / step) * step;
+  const X = (i) => L + (points.length === 1 ? (W - L - R) / 2 : (i / (points.length - 1)) * (W - L - R));
+  const Y = (v) => T + (1 - (v - lo) / (hi - lo)) * (H - T - B);
   const d = points.map((p, i) => `${i ? 'L' : 'M'}${X(i).toFixed(1)},${Y(p.v).toFixed(1)}`).join('');
   const best = points.reduce((a, b) => (b.v > a.v ? b : a));
-  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto">
+  const mean = points.reduce((a, p) => a + p.v, 0) / points.length;
+  let grid = '';
+  for (let v = lo; v <= hi + 1e-9; v += step) grid += `<line x1="${L}" y1="${Y(v).toFixed(1)}" x2="${W - R}" y2="${Y(v).toFixed(1)}" stroke="#1d252d"/><text x="${L - 6}" y="${(Y(v) + 3.5).toFixed(1)}" fill="#5d6a77" font-size="10" text-anchor="end">${v.toFixed(step < 1 ? 1 : 0)}</text>`;
+  const labIdx = points.length <= 4 ? points.map((_, i) => i) : [0, Math.round((points.length - 1) / 2), points.length - 1];
+  return `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto" role="img" aria-label="Andamento dell'altezza nel tempo">
+    ${grid}
+    <line x1="${L}" y1="${Y(mean).toFixed(1)}" x2="${W - R}" y2="${Y(mean).toFixed(1)}" stroke="#7fa8ff" stroke-width="1" stroke-dasharray="4 4" opacity="0.7"/>
+    <text x="${L + 4}" y="${(Y(mean) - 4).toFixed(1)}" fill="#7fa8ff" font-size="10">media ${mean.toFixed(1)}</text>
+    ${points.map((p, i) => (p.unc ? `<line x1="${X(i).toFixed(1)}" y1="${Y(p.v - p.unc).toFixed(1)}" x2="${X(i).toFixed(1)}" y2="${Y(p.v + p.unc).toFixed(1)}" stroke="#c6f24e" stroke-width="2.5" stroke-linecap="round" opacity="0.28"/>` : '')).join('')}
     <path d="${d}" fill="none" stroke="#c6f24e" stroke-width="2.5" stroke-linejoin="round" stroke-linecap="round"/>
-    ${points.map((p, i) => `<circle cx="${X(i)}" cy="${Y(p.v)}" r="${p === best ? 5 : 3.5}" fill="${p === best ? '#c6f24e' : '#11161b'}" stroke="#c6f24e" stroke-width="2"/>`).join('')}
-    <text x="${X(points.indexOf(best))}" y="${Y(best.v) - 10}" fill="#c6f24e" font-size="12" font-weight="800" text-anchor="middle">${best.v.toFixed(1)}</text>
-    <text x="${pad}" y="${H - 2}" fill="#5d6a77" font-size="10">${points[0].d}</text>
-    <text x="${W - pad}" y="${H - 2}" fill="#5d6a77" font-size="10" text-anchor="end">${points[points.length - 1].d}</text></svg>`;
+    ${points.map((p, i) => `<circle cx="${X(i).toFixed(1)}" cy="${Y(p.v).toFixed(1)}" r="${p === best ? 5 : 3.5}" fill="${p === best ? '#c6f24e' : '#11161b'}" stroke="#c6f24e" stroke-width="2"/>`).join('')}
+    <text x="${X(points.indexOf(best)).toFixed(1)}" y="${(Y(best.v) - (best.unc ? Y(best.v) - Y(best.v + best.unc) : 0) - 9).toFixed(1)}" fill="#c6f24e" font-size="12" font-weight="800" text-anchor="middle">${best.v.toFixed(1)}</text>
+    ${labIdx.map((i) => `<text x="${X(i).toFixed(1)}" y="${H - 8}" fill="#5d6a77" font-size="10" text-anchor="${i === 0 ? 'start' : i === points.length - 1 ? 'end' : 'middle'}">${points[i].d}</text>`).join('')}
+    <text x="${W - R}" y="${T - 5}" fill="#5d6a77" font-size="10" text-anchor="end">${units === 'in' ? 'in' : 'cm'}</text></svg>`;
 }
+
+/** Salto migliore di una sessione e la sua incertezza (1σ) nella grandezza mostrata. */
+const bestJump = (s) => (s.jumps || []).reduce((a, j) => (!a || (j.heightCm > a.heightCm) ? j : a), null);
+const uncOfJump = (j) => (j ? (j.hSource === 'integrata' && Number.isFinite(j.bestUncCm) ? j.bestUncCm : Number.isFinite(j.uncCm) ? j.uncCm : null) : null);
 
 export const history = {
   render(root, app, param) {
@@ -45,7 +60,7 @@ export const history = {
       }
       const L = (cm) => fmt.len(cm, units);
       const best = Math.max(...list.map((s) => s.best)), avg = list.reduce((a, s) => a + s.best, 0) / list.length;
-      const pts = [...list].reverse().map((s) => ({ v: L(s.best).v, d: new Date(s.date).toLocaleDateString('it-IT', { day: '2-digit', month: 'short' }) }));
+      const pts = [...list].reverse().map((s) => { const u = uncOfJump(bestJump(s)); return { v: L(s.best).v, unc: Number.isFinite(u) ? L(u).v : 0, d: new Date(s.date).toLocaleDateString('it-IT', { day: '2-digit', month: 'short' }) }; });
       put(body,
         h('div', { class: 'grid2' },
           h('div', { class: 'metric' }, h('span', {}, 'Record'), h('b', { class: 'num', style: { color: 'var(--accent)', fontSize: '26px' } }, L(best).v.toFixed(1), h('small', {}, ' ' + L(0).u))),
@@ -56,7 +71,7 @@ export const history = {
           h('div', { class: 'thumb', style: { backgroundImage: s.thumb ? `url(${s.thumb})` : '' } }),
           h('div', { class: 'grow' }, h('div', { style: { fontWeight: 700 } }, TEST_TYPES[s.testType]?.label || s.testType, s.leg && s.leg !== 'both' ? ` · ${s.leg === 'left' ? 'sx' : 'dx'}` : ''),
             h('div', { class: 'small muted' }, fmt.date(s.date), ' · ', s.athleteName, ' · ', s.jumps.length, s.jumps.length === 1 ? ' salto' : ' salti')),
-          h('div', { class: 'val num' }, L(s.best).v.toFixed(1), h('small', {}, ' ' + L(0).u))))),
+          h('div', { class: 'val num' }, L(s.best).v.toFixed(1), h('small', {}, ' ' + L(0).u), (() => { const u = uncOfJump(bestJump(s)); return Number.isFinite(u) ? h('div', { class: 'tiny faint', style: { fontWeight: 600, textAlign: 'right' } }, '± ' + L(u).v.toFixed(1)) : null; })())))),
         h('button', { class: 'btn block', style: { marginTop: '16px' }, onclick: () => downloadFile('jumplab.csv', csvRows(list)) }, ic('download'), 'Esporta CSV'));
     };
     const aSel = h('select', { class: 'input', style: { minHeight: '40px', flex: 1 }, onchange: (e) => { fAth = e.target.value; draw(); } },
@@ -130,6 +145,7 @@ function jumpCard(j, i, L, s, open) {
   const box = ([label, v, unit]) => h('div', { class: 'metric' }, h('span', {}, label), h('b', { class: 'num', style: { fontSize: '17px' } }, v, unit ? h('small', {}, ' ' + unit) : null));
   const methods = Array.isArray(j.methods) && j.methods.length ? h('div', { style: { marginTop: '10px' } },
     h('div', { class: 'sec', style: { margin: '0 0 6px' } }, 'Validazione dei metodi'),
+    h('div', { class: 'plotbox', html: agreementPlot(j.methods, { conv: (x) => L(x).v, unit: L(0).u, recommended: j.rec }) }),
     j.verdict ? h('div', { class: 'small', style: { marginBottom: '6px' } }, h('b', {}, j.verdict.titolo || ''), j.verdict.why ? ' · ' + j.verdict.why : '') : null,
     ...j.methods.map((m) => h('div', { class: 'row between small', style: { padding: '3px 0' } },
       h('span', {}, m.nome, j.rec === m.id ? h('i', { class: 'vrec' }, 'consigliato') : null),
@@ -161,7 +177,7 @@ function detail(root, app, id) {
       h('button', { class: 'iconbtn', onclick: async () => { if (await confirmSheet({ title: 'Eliminare la sessione?', text: 'L’operazione non si può annullare.', ok: 'Elimina', danger: true })) { store.removeSession(s.id); app.go('#/history'); } }, html: icon('trash') })),
     s.thumb ? h('div', { class: 'stagebox', style: { height: '150px', marginBottom: '12px' } }, h('img', { src: s.thumb, style: { height: '100%' } })) : null,
     h('div', { class: 'card' }, h('div', { class: 'small muted', style: { fontWeight: 700 } }, 'MIGLIOR SALTO'),
-      h('div', { class: 'hero' }, h('div', { class: 'big num' }, L(s.best).v.toFixed(1), h('small', {}, L(0).u)),
+      h('div', { class: 'hero' }, h('div', {}, h('div', { class: 'big num' }, L(s.best).v.toFixed(1), h('small', {}, L(0).u)), (() => { const j = bestJump(s), u = uncOfJump(j); return Number.isFinite(u) ? h('div', { class: 'small muted num', style: { marginTop: '4px' } }, `± ${L(u).v.toFixed(1)} ${L(0).u} (1σ)${j.hSource ? ' · ' + (SRC_HEIGHT[j.hSource] || j.hSource) : ''}`) : null; })()),
         h('div', { class: 'small muted', style: { textAlign: 'right' } }, `${s.fps?.toFixed(0) || '?'} fps`, h('br'), s.fileName || ''))),
     h('div', { class: 'card', style: { marginTop: '12px', overflowX: 'auto' } },
       h('table', { class: 't num' },
@@ -175,5 +191,11 @@ function detail(root, app, id) {
     h('div', { class: 'sec', style: { marginTop: '16px' } }, 'Dettaglio dei salti'),
     h('div', { class: 'card' }, ...s.jumps.map((j, i) => jumpCard(j, i, L, s, s.jumps.length === 1))),
     info.length ? h('div', { class: 'card', style: { marginTop: '12px' } }, h('div', { class: 'sec', style: { margin: '0 0 8px' } }, 'Sessione'), ...info.map(([k, v]) => h('div', { class: 'kv' }, h('span', {}, k), h('span', {}, v)))) : null,
-    h('button', { class: 'btn block', style: { marginTop: '14px' }, onclick: () => downloadFile('jumplab-sessione.csv', csvRows([s])) }, ic('download'), 'Esporta CSV'));
+    h('button', { class: 'btn block primary', style: { marginTop: '14px' }, onclick: async (e) => {
+      const b = e.currentTarget; b.disabled = true;
+      try { const r = await (await import('./report.js')).shareReport(s, S.settings.units); if (r !== 'annullato') toast(r === 'condiviso' ? 'Report condiviso' : 'Report scaricato'); }
+      catch (err) { toast('Report non creato: ' + (err.message || err)); }
+      b.disabled = false;
+    } }, ic('download'), 'Condividi report (immagine)'),
+    h('button', { class: 'btn block', style: { marginTop: '10px' }, onclick: () => downloadFile('jumplab-sessione.csv', csvRows([s])) }, ic('download'), 'Esporta CSV'));
 }

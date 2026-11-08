@@ -9,7 +9,7 @@ import { pose, PoseEngine } from './pose.js';
 import { analyze, remeasure, finalizeJump } from './jumps.js';
 import { assessRecording } from './quality.js';
 import { flagSeries, flagImplausible } from './validate.js';
-import { flowEventsRobust, mergeFlowFallback } from './footflow.js';
+import { planFlowRuns, aggregateFlowRuns, mergeFlowFallback } from './footflow.js';
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
 const FULL = { x: 0, y: 0, w: 1, h: 1 };
@@ -253,7 +253,7 @@ export async function runAnalysis(file, opts, cb = {}) {
       }
     }
     if (opts.refine !== false && session.jumps.some((j) => !j.manual)) {
-      try { await flowRefine(session, { stage, src, signal }); }
+      try { await flowRefine(session, { stage, src, signal, debug: !!opts.debugDense }); }
       catch (e) { if (e.name === 'AbortError') throw e; session.flowError = String(e.stack || e.message || e).slice(0, 400); log('Eventi dai pixel saltati: ' + (e.message || e)); }
     }
   } finally { src.dispose(); }
@@ -433,14 +433,24 @@ export async function flowRefine(session, cb) {
         kpB.push(f.kpBase || f.kp ? remapToCrop(f.kpBase || f.kp, win.crop) : null);
       }
     }
+    if (cb.debug) (session.denseDebug ||= []).push({ jk, w: cv.width, h: cv.height, gray, tc, kp, kpB, jTo, jTd }); // solo per le prove: conserva i fotogrammi usati dai pixel
     const dts = []; for (let i = 1; i < tc.length; i++) if (tc[i] > tc[i - 1]) dts.push(tc[i] - tc[i - 1]);
     const dtPx = dts.length ? dts.sort((x, y) => x - y)[dts.length >> 1] : null;
     const fopts = { leg: leg === 'left' || leg === 'right' ? leg : undefined };
-    let r = flowEventsRobust(gray, cv.width, cv.height, tc, kp, { to: jTo, td: jTd }, fopts);
+    // le stime (≈ 18 a passo nativo) si eseguono una alla volta cedendo il controllo all'interfaccia: la barra di avanzamento resta viva anche su telefono
+    const runFlow = async (seeds) => {
+      const plan = planFlowRuns(gray, cv.width, cv.height, tc, seeds, { to: jTo, td: jTd }, fopts), runs = [];
+      for (const [q, f] of plan.entries()) {
+        runs.push(f());
+        if (q % 3 === 2) { cb.stage('refine', 0.955 + 0.04 * ((jk + (q + 1) / plan.length) / jumps.length), `Tracciamento dei pixel del piede · salto ${jk + 1}/${jumps.length}`); await tick(); }
+      }
+      return aggregateFlowRuns(runs);
+    };
+    let r = await runFlow(kp);
     // Se un evento manca con i landmark rifiniti (Heavy + specchio) si riprova con quelli di base (Full): su 8 prove reali con due modelli, in 1 caso Heavy
     // posizionava male la punta del piede (rampa a 88 px/s contro ~600) e l'app ricadeva sui landmark, che sbagliano di +40…+110 ms; con Full l'evento si trovava.
     if ((r.to == null || r.td == null) && win.frames.slice(iA, iB + 1).some((f) => f.kpBase && f.kp && f.kpBase !== f.kp)) {
-      r = mergeFlowFallback(r, flowEventsRobust(gray, cv.width, cv.height, tc, kpB, { to: jTo, td: jTd }, fopts), 'base');
+      r = mergeFlowFallback(r, await runFlow(kpB), 'base');
     }
     session.flowInfo[j.win].push({
       leg: leg || 'both', posToLm: posOf(tcAll, jTo), posTdLm: posOf(tcAll, jTd),
@@ -465,7 +475,7 @@ function noPixel(j, dt) {
 /** Applica gli eventi dai pixel salvati (se plausibili) ai salti calcolati dai landmark. */
 function applyFlowInfo(session) {
   if (!session.flowInfo) return;
-  const MAXD = 0.12;
+  const MAXD = 0.16; // landmark in ritardo di ~100 ms all'atterraggio (video reali: +37…+110 ms) e in anticipo fino a ~87 ms allo stacco; il tracciamento dei pixel ora è robusto a questi errori
   session.results.forEach((res, wi) => {
     const win = session.windows[wi], tc = win.frames.map((f) => f.tc);
     const infos = session.flowInfo[wi] || [];

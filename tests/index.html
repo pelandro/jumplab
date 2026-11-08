@@ -13,10 +13,11 @@ rilevamento e misura, <b>non</b> la qualità del modello di postura su video rea
 <div id="out">In esecuzione…</div>
 <script type="module">
 import { validateJump, flagSeries, flagImplausible } from '../js/engine/validate.js';
+import { agreementPlot, velocityPlot } from '../js/ui/viz.js';
 import { integrate, PRIOR } from '../js/engine/fusion.js';
-import { analyze, remeasure, apexEstimate, summarizeSeries, heightFromFlight, samozino, sayersPeakPower, rsiOf } from '../js/engine/jumps.js';
+import { analyze, remeasure, jumpCurve, apexEstimate, summarizeSeries, heightFromFlight, samozino, sayersPeakPower, rsiOf } from '../js/engine/jumps.js';
 import { detectView, assessRecording } from '../js/engine/quality.js';
-import { flowEvents, mergeFlowFallback } from '../js/engine/footflow.js';
+import { flowEvents, flowEventsRobust, mergeFlowFallback } from '../js/engine/footflow.js';
 import { buildScenario, renderTrack, rng } from './sim.js';
 import { makeFlowScene, FLOW } from './flowsim.js';
 
@@ -207,6 +208,37 @@ for (const [lab, up] of [['braccia orizzontali → giù', Math.PI / 2], ['bracci
     chk(`Apice (Monte Carlo, ${fps} fps): errore assoluto medio`, sumAbs / nOk, 1.0, 0.5, 'cm');
     chk(`Apice (Monte Carlo, ${fps} fps): copertura dell'incertezza a 2σ (≥ 90 %)`, Math.min(100 * cover2 / nOk, 95), 95, 5, '%');
   }
+}
+
+// ---- Curva del baricentro per il grafico delle fasi: velocità di stacco e caduta libera (verità nota) ----
+for (const fps of [120, 240]) {
+  const dv = [], sl = []; let n = 0;
+  for (const T of [0.45, 0.55, 0.65]) for (const seed of [1, 2]) {
+    const scn = buildScenario('cmj', { T });
+    const res = analyze(renderTrack(scn, { fps, seed: seed * 7 + fps, noise: 0.0025 }), { testType: 'cmj', heightCm: 175 });
+    const j = res.jumps[0]; if (!j) continue;
+    const c = jumpCurve(res, j, 1.75); if (!c) continue;
+    n++;
+    const at = (t) => { let k = 0; while (k < c.t.length - 1 && c.t[k] < t) k++; return c.v[k]; };
+    dv.push(Math.abs(at(j.to + 0.25 * j.T) - ((9.80665 * j.T) / 2 - 9.80665 * 0.25 * j.T))); // velocità a un quarto del volo rispetto a v0 − g·t (balistica)
+    // pendenza in volo (20–80 %) per minimi quadrati
+    const pts = []; for (let k = 0; k < c.t.length; k++) if (c.t[k] > j.to + 0.2 * j.T && c.t[k] < j.to + 0.8 * j.T && Number.isFinite(c.v[k])) pts.push([c.t[k], c.v[k]]);
+    const mt = pts.reduce((a, p) => a + p[0], 0) / pts.length, mv = pts.reduce((a, p) => a + p[1], 0) / pts.length;
+    sl.push(pts.reduce((a, p) => a + (p[0] - mt) * (p[1] - mv), 0) / pts.reduce((a, p) => a + (p[0] - mt) ** 2, 0));
+  }
+  const mdv = dv.reduce((a, b) => a + b, 0) / dv.length, msl = sl.reduce((a, b) => a + b, 0) / sl.length;
+  chk(`Curva del baricentro (${fps} fps, ${n}/6 salti): scarto dalla caduta libera a un quarto del volo`, mdv, 0, 0.3, 'm/s');
+  chk(`Curva del baricentro (${fps} fps): pendenza in volo (atteso −g)`, msl, -9.80665, 1.0, 'm/s²');
+}
+{
+  const ms = [{ id: 'integrato', nome: 'Stima integrata', cm: 38, uncCm: 1.5, level: 'alta' }, { id: 'volo', nome: 'Tempo di volo', cm: 39.3, uncCm: 1.1, level: 'alta' }, { id: 'baricentro', nome: 'Baricentro (spazio)', cm: 35.7, uncCm: 3.9, level: 'media' }, { id: 'parabola', nome: 'Parabola', cm: 38.1, uncCm: 1.7, level: 'alta' }];
+  const svg = agreementPlot(ms, { recommended: 'integrato' });
+  chk('Grafico di accordo: 4 righe e nessun valore non numerico', (svg.match(/<circle/g) || []).length, 4, 0);
+  chk('Grafico di accordo: senza NaN nelle coordinate', /NaN|undefined|Infinity/.test(svg) ? 1 : 0, 0, 0);
+  chk('Grafico di accordo: meno di 2 metodi → nessun grafico', agreementPlot([ms[0]]).length, 0, 0);
+  const curve = { t: Array.from({ length: 200 }, (_, i) => i * 0.01), v: Array.from({ length: 200 }, (_, i) => 2.7 - 9.80665 * (i * 0.01 - 1)) };
+  const vs = velocityPlot(curve, { to: 1.0, td: 1.55, onsetT: 0.2, bottomT: 0.6, bestV0: 2.7 });
+  chk('Grafico della velocità: presente e senza NaN', vs.length > 200 && !/NaN|undefined|Infinity/.test(vs) ? 1 : 0, 1, 0);
 }
 
 // ---- Validazione ibrida dei tre metodi (volo / baricentro nello spazio / parabola) ----
@@ -443,6 +475,18 @@ const flowRows = [];
   const dflat = mkFlow(120, 0.55, 99, true); const rf = flowEvents(dflat.gray, Wd, Hd, dflat.tc, dflat.kp, dflat.rough);
   const okFlat = rf.to == null && rf.td == null; if (!okFlat) totalFail++;
   flowRows.push(`<tr><td>zona senza texture</td><td colspan="4">eventi: ${rf.to == null ? '—' : 'inventato'} / ${rf.td == null ? '—' : 'inventato'}</td><td class="${okFlat ? 'ok' : 'bad'}">${okFlat ? 'OK (rifiuta)' : 'KO'}</td></tr>`);
+  // stima dei landmark sbagliata (stacco in anticipo, atterraggio in ritardo fino a ~100 ms, come visto su video reali): la versione robusta deve trovare lo stesso gli istanti
+  for (const fps of [120, 240]) {
+    const errs = []; let miss = 0;
+    for (const [dTo, dTd] of [[-0.08, 0.10], [0.04, -0.06], [-0.06, 0.13]]) for (const [T, seed] of [[0.5, 5], [0.6, 6]]) {
+      const d = mkFlow(fps, T, seed * 17 + fps); const r = flowEventsRobust(d.gray, Wd, Hd, d.tc, d.kp, { to: d.to + dTo, td: d.td + dTd });
+      if (r.to == null || r.td == null) { miss++; continue; }
+      errs.push(Math.abs(r.to - d.to) * 1000, Math.abs(r.td - d.td) * 1000);
+    }
+    const mx = errs.length ? Math.max(...errs) : NaN, fr = 1000 / fps, ok = miss === 0 && mx < Math.max(0.6 * fr, 5);
+    if (!ok) totalFail++;
+    flowRows.push(`<tr><td>${fps} fps, landmark sbagliati (stacco −80…+40 ms, atterr. −60…+130 ms), versione robusta</td><td>${6 - miss}/6</td><td colspan="2">errore massimo ${Number.isFinite(mx) ? mx.toFixed(1) : '—'} ms</td><td>${fr.toFixed(1)}</td><td class="${ok ? 'ok' : 'bad'}">${ok ? 'OK' : 'KO'}</td></tr>`);
+  }
   // sotto 25 fps non si usa
   const d20 = mkFlow(20, 0.55, 7); const r20 = flowEvents(d20.gray, Wd, Hd, d20.tc, d20.kp, d20.rough); const ok20 = r20.to == null && r20.td == null; if (!ok20) totalFail++;
   flowRows.push(`<tr><td>20 fps</td><td colspan="4">non utilizzato (landmark)</td><td class="${ok20 ? 'ok' : 'bad'}">${ok20 ? 'OK' : 'KO'}</td></tr>`);

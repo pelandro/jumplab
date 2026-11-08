@@ -62,12 +62,39 @@ export function trackPatch(frames, w, h, c0, P, SX, SY, i0, i1, minCor = 0.45) {
   return { dy, cor };
 }
 
+/**
+ * Raffinamento locale dell'evento: l'adattamento globale (suolo → rampa) usa tutta la traccia e, se il piede ruota o accelera in volo, la
+ * posizione della cerniera dipende da quanta rampa c'è nella finestra. Misurato su 4 salti reali (240 fps): spostando di 0,10 s l'inizio
+ * della finestra del contatto il volo variava di 25–80 ms (fino a 4–14 cm), perché l'atterraggio dei landmark può essere in ritardo di
+ * ~100 ms e la finestra parte troppo tardi. Ripetendo l'adattamento in un intorno dell'evento (0,08 s dal lato suolo, 0,12 s dal lato rampa),
+ * fino a convergenza, la variazione scende a 5–25 ms (mediana su finestre diverse: 3–12 ms).
+ */
+function refineLocal(t, u, f0, dir) {
+  const dt = (t[t.length - 1] - t[0]) / Math.max(1, t.length - 1);
+  const gnd = Math.max(0.08, 5 * dt), rmp = Math.max(0.12, 7 * dt); // almeno ~5 campioni dal lato suolo e ~7 dal lato rampa anche con passi lunghi (sottocampionamenti)
+  const [before, after] = dir > 0 ? [gnd, rmp] : [rmp, gnd]; // durata prima / dopo l'evento (lato rampa più lungo)
+  let tau = f0.tau, last = null;
+  for (let it = 0; it < 4; it++) {
+    let i0 = 0, i1 = t.length - 1;
+    while (i0 < t.length - 1 && t[i0] < tau - before) i0++;
+    while (i1 > 0 && t[i1] > tau + after) i1--;
+    if (i1 - i0 < 8) break;
+    const g = hingeQuad(t, u, i0, i1, dir) || hingeFit2(t, u, i0, i1, dir);
+    if (!g) break;
+    const moved = Math.abs(g.tau - tau);
+    tau = g.tau; last = g;
+    if (moved < 0.0005) break;
+  }
+  return last;
+}
+
 /** Fit dell'evento su una traccia verticale (su = positivo). dir>0 stacco, dir<0 atterraggio. */
 function fitTrack(t, dy, cor, dir, hPx, dt, mode) {
   if (dy.length < 8) return null;
   const u = dy.map((v) => -v);
-  const f = (mode === 'linear' ? null : hingeQuad(t, u, 0, u.length - 1, dir)) || hingeFit2(t, u, 0, u.length - 1, dir);
+  let f = (mode === 'linear' ? null : hingeQuad(t, u, 0, u.length - 1, dir)) || hingeFit2(t, u, 0, u.length - 1, dir);
   if (!f) return null;
+  if (mode !== 'global') f = refineLocal(t, u, f, dir) || f;
   const meanCor = cor.reduce((a, b) => a + b, 0) / cor.length;
   const vRel = f.v / hPx; // altezze-ritaglio al secondo
   // dopo l'evento servono almeno 3 fotogrammi realmente tracciati (plateau a terra per l'atterraggio, rampa per lo stacco) e prima almeno 3
@@ -113,13 +140,13 @@ export function flowEvents(gray, w, h, tc, kp, rough, opts = {}) {
   // sotto ~25 fps lo spostamento per fotogramma è troppo grande e la rampa troppo corta: errori fino a 86 ms misurati a 15 fps equivalenti
   if (dt > 0.04) { res.detail.skipped = 'fps'; return res; }
   if (Number.isFinite(rough.to)) {
-    const r = run(rough.to - Math.max(0.22, 7 * dt), rough.to + Math.max(0.12, 5 * dt), [31, 32], +1);
+    const r = run(rough.to - Math.max(0.22, 7 * dt), rough.to + Math.max(opts.toPost ?? 0.12, 5 * dt), [31, 32], +1);
     const good = r.filter((x) => x.ok);
     res.detail.to = r;
     if (good.length) { res.to = Math.max(...good.map((x) => x.tau)); res.qTo = { n: good.length, cor: median(good.map((x) => x.cor)), spread: Math.max(...good.map((x) => x.tau)) - Math.min(...good.map((x) => x.tau)) }; }
   }
   if (Number.isFinite(rough.td)) {
-    const r = run(rough.td - Math.max(0.15, 5 * dt), rough.td + Math.max(0.22, 7 * dt), [31, 32], -1); // solo avampiede: le zone del tallone danno falsi plateau (verificato su video reale)
+    const r = run(rough.td - Math.max(opts.tdPre ?? 0.15, 5 * dt), rough.td + Math.max(0.22, 7 * dt), [31, 32], -1); // solo avampiede: le zone del tallone danno falsi plateau (verificato su video reale)
     const good = r.filter((x) => x.ok);
     res.detail.td = r;
     if (good.length) { res.td = Math.min(...good.map((x) => x.tau)); res.qTd = { n: good.length, cor: median(good.map((x) => x.cor)), spread: Math.max(...good.map((x) => x.tau)) - Math.min(...good.map((x) => x.tau)) }; }
@@ -128,35 +155,50 @@ export function flowEvents(gray, w, h, tc, kp, rough, opts = {}) {
 }
 
 /**
- * Versione robusta: con frame rate alto (passo ≤ ~10 ms) rifà il tracciamento su più sottocampionamenti dello stesso video (tutti i fotogrammi,
- * 1 su 2 in due fasi, 1 su 3 in tre fasi). L'evento è la MEDIANA delle stime valide e l'intervallo osservato misura la ripetibilità, cioè
- * quanto l'evento dipende dai fotogrammi scelti. Serve soprattutto allo stacco in ripresa laterale, dove il piede ruota e una singola stima
- * oscilla di ±9–17 ms (misurato). Servono almeno 4 stime valide su 6, altrimenti l'evento non si usa; intervallo > 30 ms = non affidabile.
- * Con frame rate più basso c'è una sola stima (nessuna ripetibilità misurabile): il chiamante usa un'incertezza di base.
+ * Versione robusta. Ogni evento è la MEDIANA di molte stime dello stesso video, ottenute variando ciò che non dovrebbe contare:
+ *   · i fotogrammi usati (con passo ≤ ~10 ms: tutti, 1 su 2 in due fasi, 1 su 3 in tre fasi);
+ *   · la finestra di tracciamento (inizio della finestra del contatto 0,15 / 0,25 / 0,35 s prima della stima dei landmark; fine di quella dello stacco
+ *     0,12 / 0,20 / 0,16 s dopo). Con landmark in ritardo di ~100 ms all'atterraggio la finestra standard lascia poca discesa prima del contatto.
+ * L'intervallo tra il 10° e il 90° percentile misura la ripetibilità (quanto l'evento dipende da quelle scelte): serve soprattutto allo stacco in
+ * ripresa laterale, dove il piede ruota e una singola stima oscilla di ±9–17 ms (misurato). Servono almeno metà delle stime valide; intervallo
+ * > 30 ms = non affidabile (evento non usato). Con passo > 10,5 ms si varia solo la finestra (3 stime).
  */
-export function flowEventsRobust(gray, w, h, tc, kp, rough, opts = {}) {
+const WINDOWS = [{ tdPre: 0.15, toPost: 0.12 }, { tdPre: 0.25, toPost: 0.20 }, { tdPre: 0.35, toPost: 0.16 }];
+
+/** Elenco delle singole stime da eseguire (funzioni senza argomenti): permette al chiamante di cedere il controllo all'interfaccia tra una e l'altra. */
+export function planFlowRuns(gray, w, h, tc, kp, rough, opts = {}) {
   const diffs = []; for (let i = 1; i < tc.length; i++) if (tc[i] > tc[i - 1]) diffs.push(tc[i] - tc[i - 1]);
   const dt = median(diffs) || 1 / 30;
-  const base = flowEvents(gray, w, h, tc, kp, rough, opts);
-  if (dt > 0.0105) return { ...base, repeat: null };
-  const runs = [base];
-  for (const [step, phases] of [[2, [0, 1]], [3, [0, 1, 2]]]) {
+  const subs = dt > 0.0105 ? [[1, [0]]] : [[1, [0]], [2, [0, 1]], [3, [0, 1, 2]]];
+  const plan = [];
+  for (const [step, phases] of subs) {
     for (const ph of phases) {
       const idx = []; for (let i = ph; i < tc.length; i += step) idx.push(i);
-      runs.push(flowEvents(idx.map((i) => gray[i]), w, h, idx.map((i) => tc[i]), idx.map((i) => kp[i]), rough, opts));
+      const g = step === 1 ? gray : idx.map((i) => gray[i]), t = step === 1 ? tc : idx.map((i) => tc[i]), k = step === 1 ? kp : idx.map((i) => kp[i]);
+      for (const win of WINDOWS) plan.push(() => flowEvents(g, w, h, t, k, rough, { ...opts, ...win }));
     }
   }
+  return plan;
+}
+
+/** Combina le stime: mediana per evento, ripetibilità = intervallo 10°–90° percentile, rifiuto se meno di metà valide o intervallo > 30 ms. */
+export function aggregateFlowRuns(runs) {
+  const base = runs[0];
   const agg = (key) => {
     const v = runs.map((r) => r[key]).filter((x) => x != null).sort((a, b) => a - b);
-    if (v.length < 4) return { val: null, n: v.length, range: NaN };
-    const range = v[v.length - 1] - v[0];
-    return { val: v[v.length >> 1], n: v.length, range };
+    if (v.length < Math.max(2, Math.ceil(0.5 * runs.length))) return { val: null, n: v.length, range: NaN };
+    const at = (q) => v[Math.round(q * (v.length - 1))];
+    return { val: v[v.length >> 1], n: v.length, range: at(0.9) - at(0.1) };
   };
   const a = agg('to'), b = agg('td');
   const out = { ...base, to: null, td: null, repeat: { to: a, td: b } };
   if (a.val != null && a.range <= 0.03) { out.to = a.val; out.qTo = base.qTo || { n: 1, cor: NaN, spread: 0 }; }
   if (b.val != null && b.range <= 0.03) { out.td = b.val; out.qTd = base.qTd || { n: 1, cor: NaN, spread: 0 }; }
   return out;
+}
+
+export function flowEventsRobust(gray, w, h, tc, kp, rough, opts = {}) {
+  return aggregateFlowRuns(planFlowRuns(gray, w, h, tc, kp, rough, opts).map((f) => f()));
 }
 
 /**
