@@ -17,7 +17,7 @@ function niceStep(span, n = 5) {
  */
 export function agreementPlot(methods, { conv = (x) => x, unit = 'cm', recommended = null } = {}) {
   const order = ['integrato', 'volo', 'baricentro', 'parabola'];
-  const short = { integrato: 'Stima integrata', volo: 'Tempo di volo', baricentro: 'Baricentro (spazio)', parabola: 'Parabola' };
+  const short = { integrato: 'Stima integrata', volo: 'Tempo di volo', baricentro: 'Baricentro', parabola: 'Parabola' };
   const rows = order.map((id) => methods?.find((m) => m.id === id)).filter((m) => m && fin(m.cm));
   if (rows.length < 2) return '';
   const val = (m) => conv(m.cm), unc = (m) => (fin(m.uncCm) ? conv(m.uncCm) : 0);
@@ -26,21 +26,20 @@ export function agreementPlot(methods, { conv = (x) => x, unit = 'cm', recommend
   if (hi - lo < minSpan) { const c = (hi + lo) / 2; lo = c - minSpan / 2; hi = c + minSpan / 2; }
   const step = niceStep(hi - lo, 5);
   lo = Math.floor(lo / step) * step; hi = Math.ceil(hi / step) * step;
-  const W = 400, rowH = 32, top = 8, left = 116, right = 14, H = top + rows.length * rowH + 26;
+  // colonne fisse: nomi (0–122), barre (130–310), valori (318–400): nessuna sovrapposizione anche con etichette lunghe
+  const W = 400, rowH = 32, top = 8, left = 130, right = 90, H = top + rows.length * rowH + 26;
   const X = (v) => left + ((v - lo) / (hi - lo)) * (W - left - right);
   const ticks = []; for (let v = lo; v <= hi + 1e-9; v += step) ticks.push(v);
   const dec = step < 1 ? 1 : 0;
   let svg = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;height:auto" role="img" aria-label="Accordo tra i metodi di stima dell'altezza">`;
   for (const v of ticks) svg += `<line x1="${X(v).toFixed(1)}" y1="${top}" x2="${X(v).toFixed(1)}" y2="${H - 22}" stroke="${GRID}" stroke-width="1"/><text x="${X(v).toFixed(1)}" y="${H - 8}" fill="${MUT}" font-size="11" text-anchor="middle">${v.toFixed(dec)}</text>`;
-  svg += `<text x="${left - 10}" y="${H - 8}" fill="${MUT}" font-size="11" text-anchor="end">${esc(unit)}</text>`;
+  svg += `<text x="${W - 4}" y="${H - 8}" fill="${MUT}" font-size="11" text-anchor="end">${esc(unit)}</text>`;
   rows.forEach((m, i) => {
     const y = top + i * rowH + rowH / 2, main = m.id === 'integrato', col = main ? ACC : BLUE, v = val(m), u = unc(m);
-    svg += `<text x="${left - 10}" y="${y + 4}" fill="${main ? '#fff' : TXT}" font-size="12.5" font-weight="${main ? 800 : 600}" text-anchor="end">${short[m.id]}${recommended === m.id ? ' ★' : ''}</text>`;
-    if (u > 0) svg += `<line x1="${X(v - u).toFixed(1)}" y1="${y}" x2="${X(v + u).toFixed(1)}" y2="${y}" stroke="${col}" stroke-width="${main ? 6 : 4}" stroke-linecap="round" opacity="0.45"/>`;
+    svg += `<text x="${left - 8}" y="${y + 4}" fill="${main ? '#fff' : TXT}" font-size="12" font-weight="${main ? 800 : 600}" text-anchor="end">${short[m.id]}${recommended === m.id ? ' ★' : ''}</text>`;
+    if (u > 0) svg += `<line x1="${Math.max(left, X(v - u)).toFixed(1)}" y1="${y}" x2="${Math.min(W - right, X(v + u)).toFixed(1)}" y2="${y}" stroke="${col}" stroke-width="${main ? 6 : 4}" stroke-linecap="round" opacity="0.45"/>`;
     svg += `<circle cx="${X(v).toFixed(1)}" cy="${y}" r="${main ? 5.5 : 4.5}" fill="${col}" stroke="#0b1014" stroke-width="2"/>`;
-    const lab = `${v.toFixed(1)}${u > 0 ? ` ± ${u.toFixed(1)}` : ''}`;
-    const x = X(v + u) + 8, anchor = x + lab.length * 6.9 > W - 2 ? 'end' : 'start';
-    svg += `<text x="${anchor === 'end' ? (X(v - u) - 8).toFixed(1) : x.toFixed(1)}" y="${y + 4}" fill="${main ? ACC : TXT}" font-size="12" font-weight="700" text-anchor="${anchor}">${lab}</text>`;
+    svg += `<text x="${W - right + 10}" y="${y + 4}" fill="${main ? ACC : TXT}" font-size="12" font-weight="700">${v.toFixed(1)}${u > 0 ? ` ± ${u.toFixed(1)}` : ''}</text>`;
   });
   return svg + '</svg>';
 }

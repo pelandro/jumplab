@@ -242,7 +242,9 @@ export function flagImplausible(jumps) {
     const weak = j.confidence === 'bassa' || j.verdict?.status === 'incoerenti';
     if (arcBad && weak) r.push(fin(j.gRatio) ? `il bacino non segue la caduta libera (curvatura ${j.gRatio.toFixed(2)}·g invece di 1)` : 'la traiettoria del bacino in volo non si adatta a una parabola');
     if (!fin(j.apexCm) && (j.issues || []).some((x) => x.code === 'footrise')) r.push('la traiettoria del baricentro non è adattabile e l\'altezza dei piedi in volo non corrisponde al tempo di volo');
-    if (fin(j.score) && j.score < 0.3 && !j.lmOnly) r.push(`affidabilità molto bassa (${(j.score * 100).toFixed(0)} %)`);
+    // con istanti dai landmark conta l'affidabilità prima della loro penalità: bassa per la fonte degli istanti ≠ volo implausibile
+    const sc = j.lmOnly && fin(j.scorePreLm) ? j.scorePreLm : j.score;
+    if (fin(sc) && sc < 0.3) r.push(`affidabilità molto bassa (${(sc * 100).toFixed(0)} %)`);
     return r;
   };
   const rs = jumps.map(reasonsOf);

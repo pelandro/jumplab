@@ -172,4 +172,20 @@ input,textarea,select,pre,.sel{-webkit-user-select:text;user-select:text}
 details.msecd{margin-top:16px;border-top:1px solid var(--line);padding-top:12px}
 details.msecd summary{color:var(--muted);font-weight:700;font-size:12.5px;letter-spacing:.04em}
 .plotbox{margin:6px 0 10px}.plotbox svg{display:block}
+/* v4.10: risultati leggibili da chiunque */
+@media(max-width:899px){.cols>.stack.res{order:-1}}
+.ctx{margin-top:8px;padding:9px 12px;border-radius:12px;background:var(--surface2);font-size:13px;line-height:1.45;color:var(--text)}
+.ctx.good{background:#1c3a22;color:#c9f5d4}.ctx.bad{background:#2c1719;color:#ffc9c9}
+.keym{display:grid;grid-template-columns:1fr;gap:8px;margin-top:10px}
+@media(min-width:520px){.keym{grid-template-columns:1fr 1fr}}
+.kmi{background:var(--surface2);border:1px solid var(--line);border-radius:13px;padding:11px 12px}
+.kmh{display:flex;justify-content:space-between;align-items:baseline;gap:10px}
+.kmh span{font-size:13px;font-weight:700;color:var(--text)}
+.kmh b{font-size:21px;white-space:nowrap}.kmh small{font-size:11px;color:var(--faint);font-weight:500}
+.kmi p{margin:4px 0 0;font-size:12px;line-height:1.45;color:var(--muted)}
+details.expert>summary{cursor:pointer;list-style:none;display:flex;justify-content:space-between;align-items:center;font-weight:700;font-size:14px}
+details.expert>summary::-webkit-details-marker{display:none}
+details.expert[open]>summary svg{transform:rotate(90deg)}
+details.expert .card{background:var(--surface2);border-color:var(--line)}
+details.expert .metric{background:var(--surface)}
 

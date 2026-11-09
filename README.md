@@ -57,6 +57,13 @@ Cloudflare Pages o Vercel come sito statico. Apri l'URL HTTPS su iPhone con Safa
 - Ripiego sul bacino quando i piedi non sono rilevati per brevi tratti.
 - Dettagli, misure e limiti in `VALIDAZIONE.md`.
 
+## Novità v4.10 (risultati comprensibili da chiunque)
+
+- **Il risultato si legge in parole**: altezza, intervallo in cui sta con buona probabilità il valore vero, perché la misura è affidabile o no, e confronto con le volte precedenti dello stesso test, con l'indicazione se la differenza è reale o entro l'errore di misura.
+- **«Cosa dice il salto»**: solo i valori utili per quel tipo di test (tempo in aria, velocità di stacco, piegamento, durata della spinta, esplosività; per drop jump e rimbalzi tempo a terra e reattività), ognuno con una frase che spiega cosa significa.
+- **Tolti i valori che non servono o sono poco affidabili**: velocità media e potenza di Samozino, potenza di picco di Sayers (equazione dello squat jump), doppioni e misure ritirate (restano nell'esportazione CSV). Tutto il resto (metodi di controllo, grafici, incertezze, forza media) è in «Dati per esperti», chiuso di default.
+- Sul telefono il risultato viene prima del video; avvisi in evidenza, note informative tra i dati per esperti; serie spiegata a parole; storico e report con gli stessi criteri.
+
 ## Novità v4.9 (robustezza verificata su video reali degradati)
 
 - **Prova su 26 varianti dei video reali** (buio, rumore, sfocatura, compressione, bassa risoluzione, atleta lontano, inclinazione, 120/60/50/30/25 fps). Da 50 fps in su la stima integrata resta entro −0,3…+1,6 cm dal video pulito, salvo inclinazione 8° in frontale (+3,5 cm). Sotto ~50 fps la misura non è affidabile (fino a +29 cm) e **ora l'app lo dice**: affidabilità bassa, incertezza ampia, verdetto non più «coerenti».

@@ -279,7 +279,8 @@ for (const fps of [120, 240]) {
     const h3 = [heel(), main()]; h3.forEach((j) => { j.testType = 'free'; }); flagImplausible(h3);
     ck('Falsi voli: nei test liberi/serie (non a salto singolo) i voli brevi non si escludono per durata', !h3[0].excluded);
     const h4 = [heel()]; flagImplausible(h4); ck('Falsi voli: un colpo di tallone da solo (nessun altro volo) non viene escluso', !h4[0].excluded);
-    const lm = validateJump(base()); lm.gRatio = 0.9; lm.score = 0.2; lm.lmOnly = true; const lm2 = [lm, real()]; flagImplausible(lm2); ck('Falsi voli: salto vero con istanti solo dai landmark (affidabilità bassa per la fonte, non per la fisica) → non segnalato né escluso', !lm2[0].excluded && !lm2[0].issues.some((x) => x.code === 'val_falso'));
+    const lm = validateJump(base()); lm.gRatio = 0.9; lm.score = 0.2; lm.lmOnly = true; lm.scorePreLm = 0.9; const lm2 = [lm, real()]; flagImplausible(lm2); ck('Falsi voli: salto vero con istanti solo dai landmark (affidabilità bassa per la fonte, non per la fisica) → non segnalato né escluso', !lm2[0].excluded && !lm2[0].issues.some((x) => x.code === 'val_falso'));
+    const lf = validateJump(base()); lf.gRatio = 0.9; lf.score = 0.05; lf.lmOnly = true; lf.scorePreLm = 0.15; const lf2 = [lf, real()]; flagImplausible(lf2); ck('Falsi voli: volo con istanti dai landmark e affidabilità già molto bassa prima della loro penalità (15 %) → escluso', lf2[0].excluded);
     const sl = validateJump(base()); sl.gRatio = 0.33; sl.timeScaleHint = 4; sl.score = 0.45; sl.confidence = 'bassa'; const g2 = [sl, real()]; flagImplausible(g2); ck('Falsi voli: video rallentato non calibrato (indizio di scala) con affidabilità ≥ 30 % → non escluso', !g2[0].excluded);
   }
   // fusione degli eventi dai pixel con i landmark di base: ripetibilità assente (passo > 10,5 ms) o solo di un evento non deve far fallire (bug trovato sul video reale)

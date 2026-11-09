@@ -62,15 +62,15 @@ export async function makeReport(s, units = 'cm') {
   text(conv(s.best).toFixed(1), pad + 36, y + 190, { size: 150, weight: 800, color: ACC });
   ctx.font = `800 150px ${FONT}`; const vw = ctx.measureText(conv(s.best).toFixed(1)).width;
   text(u, pad + 36 + vw + 14, y + 190, { size: 54, weight: 700, color: MUT });
-  if (fin(unc)) text(`± ${conv(unc).toFixed(1)} ${u} (1σ)`, pad + 40, y + 240, { size: 32, weight: 600, color: TXT });
+  if (fin(unc)) text(`± ${conv(unc).toFixed(1)} ${u} · valore vero tra ${conv(s.best - 2 * unc).toFixed(1)} e ${conv(s.best + 2 * unc).toFixed(1)} ${u} (95 %)`, pad + 40, y + 240, { size: 28, weight: 600, color: TXT });
   if (bj?.confidence) { const lab = 'Affidabilità ' + bj.confidence, col = { alta: '#7bf0a4', media: '#ffc15e', bassa: '#ff6b6b' }[bj.confidence] || MUT; ctx.font = `800 26px ${FONT}`; const w = ctx.measureText(lab).width + 44; rrect(ctx, W - pad - 36 - w, y + 36, w, 54, 27); ctx.fillStyle = 'rgba(255,255,255,0.05)'; ctx.fill(); ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.stroke(); text(lab, W - pad - 36 - w / 2, y + 73, { size: 26, weight: 800, color: col, align: 'center' }); }
   y += 270 + 26;
   // metriche principali
   const metrics = [
-    ['Tempo di volo', fin(bj?.T) ? `${Math.round(bj.T * 1000)}` : null, 'ms'],
-    ['Altezza dal tempo di volo', fin(bj?.heightFlightCm) ? conv(bj.heightFlightCm).toFixed(1) : null, u],
+    ['Tempo in aria', fin(bj?.T) ? `${Math.round(bj.T * 1000)}` : null, 'ms'],
+    [fin(bj?.timeToTakeoff) ? 'Durata della spinta' : 'Altezza dal tempo di volo', fin(bj?.timeToTakeoff) ? `${Math.round(bj.timeToTakeoff * 1000)}` : fin(bj?.heightFlightCm) ? conv(bj.heightFlightCm).toFixed(1) : null, fin(bj?.timeToTakeoff) ? 'ms' : u],
     ['Velocità di stacco', fin(bj?.bestV0) ? bj.bestV0.toFixed(2) : fin(bj?.v0) ? bj.v0.toFixed(2) : null, 'm/s'],
-    [fin(bj?.rsi) ? 'RSI' : fin(bj?.dipCm) ? 'Profondità del dip' : 'Forza media (stima)', fin(bj?.rsi) ? bj.rsi.toFixed(2) : fin(bj?.dipCm) ? conv(bj.dipCm).toFixed(1) : fin(bj?.forceN) ? Math.round(bj.forceN) + '' : null, fin(bj?.rsi) ? '' : fin(bj?.dipCm) ? u : 'N'],
+    [fin(bj?.rsi) ? 'RSI' : fin(bj?.dipCm) ? 'Profondità del piegamento' : 'Forza media (stima)', fin(bj?.rsi) ? bj.rsi.toFixed(2) : fin(bj?.dipCm) ? conv(bj.dipCm).toFixed(1) : fin(bj?.forceN) ? Math.round(bj.forceN) + '' : null, fin(bj?.rsi) ? '' : fin(bj?.dipCm) ? u : 'N'],
   ].filter((m) => m[1] != null);
   const cw = (W - 2 * pad - 24) / 2;
   metrics.forEach(([lab, v, un], i) => {
@@ -85,7 +85,7 @@ export async function makeReport(s, units = 'cm') {
   // accordo tra i metodi
   if (plot) {
     card(pad, y, W - 2 * pad, plot.h + 100);
-    text('Accordo tra i metodi (barra = ±1σ)', pad + 30, y + 52, { size: 26, weight: 800, color: MUT });
+    text('Controllo: metodi diversi, stesso salto (barra = incertezza)', pad + 30, y + 52, { size: 26, weight: 800, color: MUT });
     ctx.drawImage(plot.img, pad + 20, y + 70, W - 2 * pad - 40, plot.h);
     y += plot.h + 100 + 26;
   }

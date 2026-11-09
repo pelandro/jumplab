@@ -478,6 +478,7 @@ function noPixel(j, dt) {
     : 'Stacco e atterraggio sono stati stimati solo dai landmark del modello (il tracciamento dei pixel del piede non era affidabile: poco contrasto, piede fuori ritaglio, ripetibilità insufficiente o movimento). Sui nostri video reali i landmark hanno allungato il volo di 15–115 ms: controlla i due fotogrammi a mano.' });
   // σ degli istanti: 35 ms, e almeno 2,5 fotogrammi a frame rate basso (a ~22 fps l'errore osservato è stato +116 e +170 ms)
   j.lmOnly = true;
+  j.scorePreLm = j.score; // affidabilità prima della penalità dovuta ai landmark: serve a riconoscere i falsi voli
   j.uncT = Math.hypot(j.uncT || 0, Math.max(0.035, 2.5 * dt));
   j.uncCm = ((9.80665 * j.T * j.uncT) / 4) * 100;
   j.score = Math.max(0, Math.min(j.score, low && dt > 0.02 ? 0.45 : 0.7) - 0.1);
@@ -533,6 +534,7 @@ function applyFlowInfo(session) {
         const sLm = Math.max(0.035, 2.5 * dtc);
         j.uncT = Math.hypot(Math.SQRT2 * 0.35 * dtc, 0.5 * (to - toLm), 0.5 * (td - tdLm), sp(info.qTo), sp(info.qTd), sLm);
         j.lmOnly = true;
+        j.scorePreLm = j.score;
         j.score = Math.min(j.score, 0.7);
         j.confidence = j.score >= 0.75 ? 'alta' : j.score >= 0.5 ? 'media' : 'bassa';
         j.issues.push({ level: 'warn', code: 'lmhalf', text: `${srcTo === 'landmark' ? 'Lo stacco' : 'L\'atterraggio'} è stato stimato dai landmark del modello (il tracciamento dei pixel del piede non era affidabile: rumore, poco contrasto o piede coperto), l'altro istante dai pixel. Sui nostri video i landmark hanno allungato il volo di 15–115 ms: controlla quel fotogramma a mano.` });

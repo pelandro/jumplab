@@ -664,3 +664,11 @@ Per i video sotto 50 fps ho provato a ricavare stacco e atterraggio dal punto in
 
 Test: 196 controlli, nessun KO (nuovi: verdetto con istanti dai landmark, falsi voli con istanti dai landmark).
 
+## v4.10 — presentazione dei risultati
+
+Nessun cambiamento ai calcoli dell'altezza, salvo una correzione: la regola dei falsi voli sull'affidabilità molto bassa ora usa l'affidabilità **prima** della penalità dovuta agli istanti dai landmark. Nella 4.9 un falso volo con istanti dai landmark (affidabilità 15 %) non veniva più escluso e faceva ricomparire il banner «video rallentato»; corretto con un nuovo test.
+- **Confronto con le volte precedenti**: una differenza è detta «reale» solo se supera 2 volte l'incertezza combinata delle due misure (√(σ₁² + σ₂²)). È un criterio prudente: una parte dell'errore è comune alle due misure (stesso atleta, stessa ripresa) e si annullerebbe, quindi alcune differenze reali vengono dette «entro l'errore».
+- **Intervallo mostrato**: ±2σ (circa 95 % se l'errore è approssimativamente normale), con σ calcolata come descritto nelle sezioni precedenti. Non è un intervallo verificato contro una pedana.
+- **Valori tolti dalla vista** per validità scarsa o mancanza di fondamento: velocità media e potenza (Samozino; PMC9884043), potenza di picco di Sayers (equazione ricavata per lo squat jump), velocità di stacco dal solo tempo di volo (doppione), altezza corretta per postura (sostituita dalla stima integrata). Restano nel CSV.
+- Test: 197 controlli, nessun KO.
+

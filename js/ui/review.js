@@ -4,6 +4,7 @@ import { h, icon, ic, fmt, toast, confirmSheet } from './dom.js';
 import { store } from '../store.js';
 import { TEST_TYPES, summarizeSeries, finalizeJump, jumpCurve } from '../engine/jumps.js';
 import { agreementPlot, velocityPlot } from './viz.js';
+import { rangeText, reliabilityText, historyContext, keyMetrics } from './explain.js';
 import { openGuide } from './guide.js';
 import { VERSION } from '../store.js';
 import { reanalyze, editJump, addJump } from '../engine/pipeline.js';
@@ -50,7 +51,11 @@ export const review = {
     const pills = h('div', { class: 'pills' });
     const hero = h('div', { class: 'card' });
     const metricsBox = h('div');
-    const issuesBox = h('div');
+    const keyBox = h('div', { class: 'card' });
+    const infoBox = h('div');
+    const headlineBtn = h('div');
+    const fin = Number.isFinite;
+    const issuesBox = h('div', { class: 'card hide' });
     const seriesBox = h('div', { class: 'card hide' });
     const qualityBox = h('div', { class: 'card hide' });
     const valBox = h('div', { class: 'card hide' });
@@ -131,7 +136,7 @@ export const review = {
       badge.className = 'badge ' + (air ? 'air' : 'ground');
       badge.textContent = air ? 'IN VOLO' : 'A TERRA';
       tcode.textContent = fmt.time(t);
-      frameInfo.textContent = `Frame ${player.i + 1}/${player.win.frames.length} · idx ${player.frame?.idx} · Δ ${((j.td - j.to) * 1000).toFixed(1)} ms in volo`;
+      frameInfo.textContent = `Fotogramma ${player.i + 1} di ${player.win.frames.length} · in aria ${Math.round((j.td - j.to) * 1000)} ms`;
     }
 
     function setEvent(which, t, fromChart = false) {
@@ -197,74 +202,60 @@ export const review = {
       pills.replaceChildren(...jumps().map((x, i) => h('button', { class: 'pill' + (i === selIdx ? ' sel' : '') + (x.excluded ? ' off' : ''), onclick: () => select(i) },
         `Salto ${i + 1}`, h('small', { class: 'num' }, x.excluded && x.autoExcluded ? 'escluso' : `${uncal(x) ? '—' : L(hd(x)).v.toFixed(1) + ' ' + L(hd(x)).u}${x.manual ? ' · man.' : ''}`))),
         h('button', { class: 'pill', style: { minWidth: '56px', color: 'var(--accent)' }, onclick: addManual }, ic('plus'), h('small', {}, 'Aggiungi')));
-      // hero
+      // risultato principale: numero, intervallo detto a parole, confronto con le volte precedenti, motivo dell'affidabilità
       const hh = L(hd(j));
       const integ = j.hUseSource === 'integrata';
-      hero.replaceChildren(
+      const sig = integ ? j.bestUncCm : j.uncCm;
+      const past = S.sessions.filter((x) => x.athleteId === ath?.id && x.testType === session.params.testType && fin(x.best))
+        .sort((a, b) => b.date - a.date).map((x) => { const bj = (x.jumps || []).reduce((a, q) => (!a || q.heightCm > a.heightCm ? q : a), null); return { date: x.date, best: x.best, unc: bj ? (bj.hSource === 'integrata' && fin(bj.bestUncCm) ? bj.bestUncCm : bj.uncCm) : NaN }; });
+      const ctxItems = uncal(j) || j.excluded ? [] : historyContext(past, hd(j), sig, hh.u, (x) => L(x).v);
+      hero.replaceChildren(...[
         h('div', { class: 'hero' },
-          h('div', {}, h('div', { class: 'small muted', style: { fontWeight: 700, marginBottom: '6px' } }, integ ? 'ALTEZZA SALTO (stima integrata)' : 'ALTEZZA SALTO (tempo di volo)'),
+          h('div', {}, h('div', { class: 'small muted', style: { fontWeight: 700, marginBottom: '6px' } }, 'ALTEZZA DEL SALTO'),
             // video rallentato non calibrato: il numero sarebbe assurdo (es. 800 cm) e potrebbe essere letto o salvato per errore
             uncal(j) ? h('div', { class: 'big num' }, '—', h('small', {}, 'calibra il tempo'))
               : h('div', { class: 'big num' }, hh.v.toFixed(1), h('small', {}, hh.u)),
-            Number.isFinite(integ ? j.bestUncCm : j.uncCm) && !uncal(j) ? h('div', { class: 'small muted num', style: { marginTop: '4px' } }, `± ${L(integ ? j.bestUncCm : j.uncCm).v.toFixed(1)} ${hh.u} (1σ)${j.refined ? ' · rifinito' : ''}`) : null,
-            !uncal(j) ? h('div', { class: 'small muted num', style: { marginTop: '2px' } }, integ ? `Tempo di volo: ${L(j.heightCm).v.toFixed(1)} ± ${L(j.uncCm).v.toFixed(1)} ${hh.u}` : (Number.isFinite(j.bestCm) ? `Stima integrata: ${L(j.bestCm).v.toFixed(1)} ± ${L(j.bestUncCm).v.toFixed(1)} ${hh.u}` : null)) : null),
-          h('div', { style: { textAlign: 'right' } }, h('span', { class: 'conf ' + j.confidence }, 'Affidabilità ' + j.confidence),
-            h('div', { class: 'num', style: { fontSize: '22px', fontWeight: 800, marginTop: '8px' } }, fmt.ms(j.T), h('small', { class: 'muted', style: { fontSize: '13px' } }, ' ms'))),
-        ),
+            fin(sig) && !uncal(j) ? h('div', { class: 'small muted num', style: { marginTop: '6px' } }, `± ${L(sig).v.toFixed(1)} ${hh.u}`) : null),
+          h('div', { style: { textAlign: 'right' } }, h('span', { class: 'conf ' + j.confidence }, 'Affidabilità ' + j.confidence))),
+        !uncal(j) && fin(sig) ? h('p', { class: 'small', style: { margin: '12px 0 0', lineHeight: 1.5 } }, rangeText(L(hd(j)).v, L(sig).v, hh.u)) : null,
+        h('p', { class: 'small muted', style: { margin: '6px 0 0', lineHeight: 1.5 } }, reliabilityText(j, { uncal: uncal(j) })),
+        ...ctxItems.map((c) => h('div', { class: 'ctx ' + c.tone }, c.text)),
+        j.excluded ? h('div', { class: 'ctx bad' }, 'Questo volo è escluso dal risultato della sessione.') : null,
         h('div', { class: 'row', style: { marginTop: '14px', gap: '8px', flexWrap: 'wrap' } },
           h('button', { class: 'btn sm ghost', onclick: () => { j.excluded = !j.excluded; j.userSet = true; j.autoExcluded = false; refresh(); } }, ic(j.excluded ? 'plus' : 'close'), j.excluded ? 'Includi nel risultato' : 'Escludi salto'),
-          Number.isFinite(j.bestCm) ? h('button', { class: 'btn sm ghost', onclick: () => { const to = integ ? 'flight' : 'integrated'; store.s.settings.headline = to; store.save(); for (const x of session.jumps) { x.headline = to; finalizeJump(x); } refresh(); } }, ic('info'), integ ? 'Mostra il tempo di volo' : 'Mostra la stima integrata') : null,
-          jumps().length > 1 ? h('button', { class: 'btn sm ghost', onclick: () => removeJump() }, ic('trash'), 'Elimina') : null));
-      // metriche, raggruppate: ciò che serve a leggere il salto in alto, i dettagli tecnici (incertezze, baricentro, fonte degli istanti) in fondo
-      const G = { main: [], phases: [], power: [], react: [], tech: [] };
-      const add = (grp, label, v, unit = '', show = true) => { if (show && v !== '—' && v !== undefined) G[grp].push(h('div', { class: 'metric' }, h('span', {}, label), h('b', { class: 'num', style: String(v).length > 7 ? { fontSize: '16px', lineHeight: 1.25 } : null }, v, unit ? h('small', {}, ' ' + unit) : null))); };
-      const cmj = !!TEST_TYPES[session.params.testType]?.needsDip;
-      add('main', 'Tempo di volo', fmt.ms(j.T), 'ms');
-      add('main', 'Altezza dal tempo di volo', fmt.num(L(j.heightCm).v, 1), L(0).u, !uncal(j) && j.hUseSource === 'integrata');
-      add('main', 'Velocità di stacco', Number.isFinite(j.bestV0) ? `${fmt.num(j.bestV0, 2)} ± ${fmt.num(j.bestV0Unc, 2)}` : '—', 'm/s', Number.isFinite(j.bestV0) && !uncal(j));
-      add('main', 'Vel. di stacco da tempo di volo', fmt.num(j.v0, 2), 'm/s');
-      add('main', 'Pedana (stima)', fmt.num(L(j.boxCm).v, 0), L(0).u, Number.isFinite(j.boxCm));
-      add('phases', 'Profondità dip', fmt.num(L(j.dipCm).v, 1), L(0).u, Number.isFinite(j.dipCm) && cmj);
-      add('phases', 'Tempo al decollo', fmt.ms(j.timeToTakeoff), 'ms', Number.isFinite(j.timeToTakeoff) && cmj);
-      add('phases', 'FT:CT (volo / tempo al decollo)', fmt.num(j.ftct, 2), '', Number.isFinite(j.ftct) && cmj);
-      add('power', 'Velocità media di spinta (stima, validità scarsa)', fmt.num(j.vMean, 2), 'm/s', Number.isFinite(j.vMean) && Number.isFinite(j.forceN));
-      add('power', 'Forza media spinta', fmt.num(j.forceN, 0), 'N', Number.isFinite(j.forceN));
-      add('power', 'Potenza media (stima, validità scarsa)', fmt.num(j.powerW, 0), 'W', Number.isFinite(j.powerW));
-      add('power', 'Forza media (per kg)', fmt.num(j.forceRel, 1), 'N/kg', Number.isFinite(j.forceRel));
-      add('power', 'Potenza media (per kg)', fmt.num(j.powerRel, 1), 'W/kg', Number.isFinite(j.powerRel));
-      add('power', 'Potenza di picco (Sayers 1999, equazione SJ)', fmt.num(j.sayersW, 0), 'W', Number.isFinite(j.sayersW));
-      add('react', 'Contatto al suolo', fmt.ms(j.contact), 'ms', Number.isFinite(j.contact));
-      add('react', 'RSI (h/GCT)', fmt.num(j.rsi, 2), '', Number.isFinite(j.rsi));
-      add('react', 'RSI-flight (TV/GCT)', fmt.num(j.rsiFlight, 2), '', Number.isFinite(j.rsiFlight));
-      add('react', 'RSI mod (h/tempo)', fmt.num(j.rsiMod, 2), '', Number.isFinite(j.rsiMod));
-      add('tech', 'Baricentro all\'atterraggio più basso dello stacco', Number.isFinite(j.landDeltaCm) ? `${fmt.num(L(j.landDeltaCm).v, 1)} ± ${fmt.num(L(j.landDeltaUncCm).v, 1)}` : '—', L(0).u, Number.isFinite(j.landDeltaCm) && !uncal(j));
-      add('tech', 'Δ dalla traiettoria del baricentro', Number.isFinite(j.landDeltaMeasCm) ? fmt.num(L(j.landDeltaMeasCm).v, 1) : '—', L(0).u, Number.isFinite(j.landDeltaMeasCm) && !uncal(j));
-      add('tech', 'Velocità di stacco (dal culmine del baricentro)', `${fmt.num(j.apexV0, 2)} ± ${fmt.num(j.apexV0Unc, 2)}`, 'm/s', Number.isFinite(j.apexV0) && !uncal(j));
-      add('tech', 'Altezza da velocità di stacco (stima)', `${fmt.num(L(j.apexCm).v, 1)} ± ${fmt.num(L(j.apexUncCm).v, 1)}`, L(0).u, Number.isFinite(j.apexCm) && !uncal(j));
-      add('tech', 'Baricentro usato per il culmine', j.apexProxy ?? '—', '', Number.isFinite(j.apexCm) && !uncal(j));
-      add('tech', 'Scarto tra i modi di stimare il baricentro', fmt.num(L(j.apexSpreadCm).v, 1), L(0).u, Number.isFinite(j.apexSpreadCm) && !uncal(j));
-      add('tech', 'Culmine rispetto a metà volo', `${j.apexAsymMs >= 0 ? '+' : ''}${fmt.num(j.apexAsymMs, 0)}`, 'ms', Number.isFinite(j.apexAsymMs) && !uncal(j));
-      add('tech', 'Risoluzione ±1 frame', '±' + fmt.num(L(j.frameCm).v, 1), L(0).u);
-      if (Number.isFinite(j.uncCm) && Number.isFinite(j.frameCm) && !uncal(j)) {
-        // errore atteso diviso per origine: frame rate (quantizzazione, σ = 0,41·(±1 fotogramma)), rilevazione (modello/pixel, residuo), sistematico (postura)
-        const sFr = 0.408 * j.frameCm, sDet = Math.sqrt(Math.max(0, j.uncCm * j.uncCm - sFr * sFr));
-        const sys = Number.isFinite(j.heightCorrCm) ? Math.max(0, j.heightCm - j.heightCorrCm) : NaN;
-        G.tech.push(h('div', { class: 'metric', style: { gridColumn: '1 / -1' } }, h('span', {}, 'Errore atteso (1σ) per origine'),
-          h('b', { class: 'num', style: { fontSize: '13px', lineHeight: 1.5 } },
-            `frame rate ±${fmt.num(L(sFr).v, 1)} · rilevazione ±${fmt.num(L(sDet).v, 1)} ${L(0).u}`, Number.isFinite(sys) && sys > 0.3 ? ` · sistematico: fino a +${fmt.num(L(sys).v, 1)} ${L(0).u} (postura)` : '')));
-      }
-      add('tech', 'Stacco / atterraggio rilevati da', j.flow ? `${j.flow.src.to === 'pixel' ? 'pixel' : 'landmark'} / ${j.flow.src.td === 'pixel' ? 'pixel' : 'landmark'}` : 'landmark', '', !j.manual);
-      add('tech', 'Altezza corretta per postura', fmt.num(L(j.heightCorrCm).v, 1), L(0).u, Number.isFinite(j.heightCorrCm) && (j.issues || []).some((x) => x.code === 'landflex'));
-      const section = (title, arr) => (arr.length ? [h('div', { class: 'msec' }, title), h('div', { class: 'metrics' }, ...arr)] : []);
-      const m = [...section('Altezza e velocità', G.main), ...section('Fasi del salto', G.phases), ...section('Forza e potenza (stime)', G.power), ...section('Reattività', G.react),
-        ...(G.tech.length ? [h('details', { class: 'acc msecd' }, h('summary', {}, h('span', {}, 'Dettagli tecnici e incertezze'), ic('chev')), h('div', { class: 'metrics', style: { marginTop: '8px' } }, ...G.tech))] : [])];
+          jumps().length > 1 ? h('button', { class: 'btn sm ghost', onclick: () => removeJump() }, ic('trash'), 'Elimina') : null)].filter(Boolean));
+      // i pochi valori che servono a capire il salto, con una frase ciascuno
+      const km = uncal(j) ? [] : keyMetrics(j, session.params.testType, L);
+      keyBox.classList.toggle('hide', !km.length);
+      keyBox.replaceChildren(h('h3', {}, 'Cosa dice il salto'),
+        h('div', { class: 'keym' }, ...km.map((x) => h('div', { class: 'kmi' }, h('div', { class: 'kmh' }, h('span', {}, x.label), h('b', { class: 'num' }, String(x.value), x.unit ? h('small', {}, ' ' + x.unit) : null)), h('p', {}, x.help)))));
+      // dati per esperti: fonte degli istanti, incertezze, baricentro, forza media (valida nei confronti con pedane); niente valori di validità scarsa
+      // (velocità media e potenza di Samozino, potenza di picco di Sayers, ricavata per lo squat jump) né doppioni
+      const T = [];
+      const add = (label, v, unit = '', show = true) => { if (show && v !== '—' && v !== undefined) T.push(h('div', { class: 'metric' }, h('span', {}, label), h('b', { class: 'num', style: String(v).length > 7 ? { fontSize: '16px', lineHeight: 1.25 } : null }, v, unit ? h('small', {}, ' ' + unit) : null))); };
+      add('Altezza dal solo tempo di volo', fmt.num(L(j.heightCm).v, 1), L(0).u, !uncal(j) && integ);
+      add('Stima integrata', fin(j.bestCm) ? `${fmt.num(L(j.bestCm).v, 1)} ± ${fmt.num(L(j.bestUncCm).v, 1)}` : '—', L(0).u, fin(j.bestCm) && !uncal(j) && !integ);
+      add('Velocità di stacco', fin(j.bestV0) ? `${fmt.num(j.bestV0, 2)} ± ${fmt.num(j.bestV0Unc, 2)}` : '—', 'm/s', fin(j.bestV0) && !uncal(j));
+      add('Forza media di spinta (stima)', fmt.num(j.forceN, 0), 'N', fin(j.forceN));
+      add('Forza media per kg', fmt.num(j.forceRel, 1), 'N/kg', fin(j.forceRel));
+      add('Baricentro all\'atterraggio più basso dello stacco', fin(j.landDeltaCm) ? `${fmt.num(L(j.landDeltaCm).v, 1)} ± ${fmt.num(L(j.landDeltaUncCm).v, 1)}` : '—', L(0).u, fin(j.landDeltaCm) && !uncal(j));
+      add('Culmine rispetto a metà volo', `${j.apexAsymMs >= 0 ? '+' : ''}${fmt.num(j.apexAsymMs, 0)}`, 'ms', fin(j.apexAsymMs) && !uncal(j));
+      add('Baricentro usato', j.apexProxy ?? '—', '', fin(j.apexCm) && !uncal(j));
+      add('Stacco / atterraggio letti da', j.flow ? `${j.flow.src.to === 'pixel' ? 'pixel' : 'modello'} / ${j.flow.src.td === 'pixel' ? 'pixel' : 'modello'}` : 'modello', '', !j.manual);
+      add('Frame rate', fin(j.dt) ? Math.round(1 / j.dt) : '—', 'fps');
+      add('Risoluzione ±1 fotogramma', '±' + fmt.num(L(j.frameCm).v, 1), L(0).u);
+      const m = T.length ? [h('div', { class: 'metrics' }, ...T)] : [];
       const notes = [];
-      if (Number.isFinite(j.rsi)) notes.push('RSI = altezza (da tempo di volo) / contatto: confronta atleti diversi con cautela (sovrastima sotto 1,0, sottostima sopra 1,0 rispetto al calcolo da velocità di stacco).');
-      if (Number.isFinite(j.forceN)) notes.push('Forza, velocità media e potenza sono stime (Samozino 2008) da altezza, massa e corsa di spinta. Nei confronti con pedane di app simili (240 fps) la forza media è risultata valida, mentre velocità media e potenza hanno validità scarsa (velocità sottostimata): usale solo per confronti nel tempo sullo stesso atleta, non come misure di laboratorio.');
+      if (fin(j.forceN)) notes.push('La forza media è stimata (Samozino 2008) da altezza, massa e corsa di spinta; nei confronti con pedane di app simili è risultata valida. Velocità media e potenza con lo stesso metodo hanno validità scarsa e non sono mostrate.');
+      if (fin(j.bestCm) && !uncal(j)) notes.push(`Altezza mostrata: ${integ ? 'stima integrata (corregge il tempo di volo quando si atterra più piegati di come si è staccato)' : 'solo tempo di volo (come le app classiche)'}.`);
       drawValidation(j);
       metricsBox.replaceChildren(...m, ...(notes.length ? [h('p', { class: 'tiny faint', style: { margin: '10px 0 0' } }, notes.join(' '))] : []));
-      issuesBox.replaceChildren(...j.issues.map((x) => h('div', { class: 'issue ' + x.level, html: icon(x.level === 'info' ? 'info' : 'alert') }, h('div', {}, x.text))));
-      if (!j.issues.length) issuesBox.append(h('div', { class: 'issue info', html: icon('check') }, h('div', {}, 'Nessuna anomalia: tempi, traiettoria e visibilità dei piedi sono coerenti.')));
+      const warnIss = j.issues.filter((x) => x.level === 'warn' || x.level === 'bad'), infoIss = j.issues.filter((x) => !(x.level === 'warn' || x.level === 'bad'));
+      issuesBox.classList.toggle('hide', !warnIss.length);
+      issuesBox.replaceChildren(h('h3', {}, warnIss.length === 1 ? 'Un avviso' : `${warnIss.length} avvisi`), ...warnIss.map((x) => h('div', { class: 'issue ' + x.level, html: icon('alert') }, h('div', {}, x.text))));
+      infoBox.replaceChildren(...infoIss.map((x) => h('div', { class: 'issue info', html: icon('info') }, h('div', {}, x.text))));
+      headlineBtn.replaceChildren();
+      if (fin(j.bestCm)) headlineBtn.append(h('button', { class: 'btn sm ghost', style: { marginTop: '10px' }, onclick: () => { const to = integ ? 'flight' : 'integrated'; store.s.settings.headline = to; store.save(); for (const x of session.jumps) { x.headline = to; finalizeJump(x); } refresh(); } }, ic('info'), integ ? 'Mostra l\'altezza dal solo tempo di volo' : 'Mostra la stima integrata'));
       // banner calibrazione
       bannerBox.replaceChildren();
       const hint = jumps().find((x) => x.timeScaleHint && !x.excluded)?.timeScaleHint; // un falso volo escluso non deve proporre di ricalibrare il video
@@ -276,13 +267,16 @@ export const review = {
       if (active.length > 1) {
         const sum = summarizeSeries(active);
         seriesBox.classList.remove('hide');
-        seriesBox.replaceChildren(h('h3', {}, 'Serie'),
+        const hasC = active.some((x) => fin(x.contact));
+        const best = active.reduce((a, x) => (hd(x) > hd(a) ? x : a));
+        seriesBox.replaceChildren(h('h3', {}, `Serie di ${active.length} salti`),
+          h('p', { class: 'small', style: { margin: '6px 0 10px', lineHeight: 1.5 } }, `Media ${L(sum.meanCm).v.toFixed(1)} ${L(0).u}, migliore ${L(hd(best)).v.toFixed(1)} ${L(0).u} (salto ${jumps().indexOf(best) + 1}). `,
+            fin(sum.cvPct) ? `I salti differiscono tra loro del ${fmt.num(sum.cvPct, 1)} % in media: più è basso, più sono costanti.` : '',
+            fin(sum.declinePct) && active.length >= 4 ? ` Dal primo all\u2019ultimo terzo l\u2019altezza ${sum.declinePct > 0 ? 'cala' : 'cresce'} del ${fmt.num(Math.abs(sum.declinePct), 0)} %${sum.declinePct > 5 ? ': possibile affaticamento' : ''}.` : ''),
           h('table', { class: 't num' },
-            h('tr', {}, ...['#', 'H ' + L(0).u, 'Volo', 'Contatto', 'RSI'].map((x) => h('th', {}, x))),
+            h('tr', {}, ...['#', 'Altezza ' + L(0).u, 'In aria ms', hasC ? 'A terra ms' : null, hasC ? 'RSI' : null].filter(Boolean).map((x) => h('th', {}, x))),
             ...jumps().map((x, i) => h('tr', { style: { opacity: x.excluded ? 0.4 : 1, cursor: 'pointer', color: i === selIdx ? 'var(--accent)' : '' }, onclick: () => select(i) },
-              h('td', {}, i + 1), h('td', {}, L(hd(x)).v.toFixed(1)), h('td', {}, fmt.ms(x.T)), h('td', {}, fmt.ms(x.contact)), h('td', {}, fmt.num(x.rsi, 2)))),
-            h('tr', { class: 'faint', style: { fontSize: '12px' } }, h('td', { colSpan: 5 }, `Variabilità (CV): ${fmt.num(sum.cvPct, 1)} %` + (Number.isFinite(sum.declinePct) ? ` · calo di altezza primo→ultimo terzo: ${fmt.num(sum.declinePct, 1)} %` : ''))),
-            h('tr', { style: { fontWeight: 800 } }, h('td', {}, 'Media'), h('td', {}, L(sum.meanCm).v.toFixed(1)), h('td', {}, fmt.ms(mean(active.map((x) => x.T)))), h('td', {}, fmt.ms(sum.meanContact)), h('td', {}, fmt.num(sum.meanRsi, 2)))));
+              h('td', {}, i + 1), h('td', {}, x.excluded ? 'escluso' : L(hd(x)).v.toFixed(1)), h('td', {}, fmt.ms(x.T)), hasC ? h('td', {}, fmt.ms(x.contact)) : null, hasC ? h('td', {}, fmt.num(x.rsi, 2)) : null))));
       } else seriesBox.classList.add('hide');
       updateBadge();
     }
@@ -421,13 +415,19 @@ export const review = {
     }
 
     // --------- layout
-    const left = h('div', { class: 'stack' }, stage, frameInfo, ctrl, speedSeg, evBtns,
-      h('div', { class: 'card' }, h('h3', {}, 'Traiettoria · trascina i cursori per correggere'), chartBox,
-        h('div', { class: 'row small muted', style: { marginTop: '8px', gap: '14px' } },
+    const left = h('div', { class: 'stack' },
+      h('div', { class: 'sec', style: { margin: '4px 2px 0' } }, 'Rivedi il salto'),
+      stage, frameInfo, ctrl, speedSeg, evBtns,
+      h('p', { class: 'tiny faint', style: { margin: '-4px 2px 0' } }, 'Se lo stacco o l\u2019atterraggio non sono giusti, porta il video sul fotogramma corretto e tocca «Stacco qui» o «Atterraggio qui»: tutto viene ricalcolato.'),
+      h('div', { class: 'card' }, h('h3', {}, 'Piedi e bacino nel tempo'), chartBox,
+        h('div', { class: 'row small muted', style: { marginTop: '8px', gap: '14px', flexWrap: 'wrap' } },
           h('span', {}, h('b', { style: { color: 'var(--accent)' } }, '━ '), 'piedi sopra il suolo'),
-          h('span', {}, h('b', { style: { color: '#fff' } }, '━ '), 'bacino'))),
-      velBox);
-    const right = h('div', { class: 'stack' }, bannerBox, qualityBox, hero, valBox, h('div', { class: 'card' }, h('h3', {}, 'Metriche'), metricsBox, issuesBox), seriesBox, settingsBox);
+          h('span', {}, h('b', { style: { color: '#fff' } }, '━ '), 'bacino'),
+          h('span', {}, 'la fascia evidenziata è il volo; trascina i bordi per correggerlo'))));
+    const expert = h('details', { class: 'card expert' },
+      h('summary', {}, h('span', {}, 'Dati per esperti e come è stato misurato'), ic('chev')),
+      h('div', { class: 'stack', style: { marginTop: '12px' } }, valBox, velBox, h('div', {}, metricsBox, headlineBtn), infoBox));
+    const right = h('div', { class: 'stack res' }, bannerBox, hero, keyBox, issuesBox, seriesBox, expert, qualityBox, settingsBox);
     root.append(pills, h('div', { class: 'cols', style: { marginTop: '12px' } }, left, right),
       h('div', { class: 'sticky' }, h('div', { class: 'in' },
         h('button', { class: 'btn', style: { flex: 1 }, onclick: async () => { if (await confirmSheet({ title: 'Scartare l’analisi?', text: 'Il risultato non verrà salvato.', ok: 'Scarta', danger: true })) { app.session = null; app.go('#/'); } } }, 'Scarta'),
