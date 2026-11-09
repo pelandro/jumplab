@@ -55,7 +55,7 @@ export const home = {
       h('div', { class: 'card', style: { marginTop: '16px' } },
         h('h3', {}, 'Per la massima precisione'),
         h('ul', { class: 'tips' },
-          h('li', { html: '<b>Slow-motion 240 fps</b> dalla Fotocamera iPhone (Slo-mo) poi “Importa”. A 30 fps l’errore è di diversi cm.' }),
+          h('li', { html: '<b>Slow-motion 240 fps</b> (almeno 60) dalla Fotocamera iPhone (Slo-mo) poi “Importa”. Sotto ~50 fps stacco e atterraggio non si leggono dai pixel: nei nostri test a 25–30 fps l’errore è arrivato a +18–29 cm.' }),
           h('li', { html: '<b>Telefono fermo</b> su un appoggio, all’altezza del bacino, a 2–3 m, <b>ripresa laterale</b>.' }),
           h('li', { html: '<b>Tutto il corpo e i piedi</b> sempre in inquadratura, anche in volo. Scarpe visibili, buona luce.' }),
           h('li', { html: 'Una sola persona nell’inquadratura. Pavimento in contrasto con le scarpe.' })),

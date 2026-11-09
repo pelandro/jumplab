@@ -197,6 +197,12 @@ export function validateJump(j) {
     recommended = rank[P.level] > rank[F.level] ? 'parabola' : 'volo';
     why = recommended === 'volo' ? 'metodo standard, confermato dagli altri' : 'livello di affidabilità superiore al tempo di volo, confermato dagli altri';
   }
+  // istanti solo dai landmark: volo, parabola e baricentro dipendono dallo stesso istante di stacco e concordano anche quando è sbagliato (video ridotto a
+  // ~22 fps: tutti e quattro i metodi a 55–58 cm contro 38 cm). La concordanza non è una prova: al massimo «parziale».
+  if (j.lmOnly && status === 'coerenti') {
+    status = 'parziale';
+    flags.push({ code: 'eventi_landmark', metodo: 'volo', text: 'Almeno un istante viene dai landmark: i metodi dipendono dallo stesso istante di stacco e possono concordare anche se è sbagliato. Controlla i fotogrammi di stacco e atterraggio.' });
+  }
   if (I && status !== 'incoerenti') { recommended = 'integrato'; why = 'combina il tempo di volo e la traiettoria del baricentro con pesi proporzionali all\'affidabilità (non è una media)'; }
   const titolo = status === 'coerenti' ? 'I metodi concordano' : status === 'parziale' ? 'Concordanza parziale' : 'Misura da verificare';
   j.methods = methods;
@@ -236,7 +242,7 @@ export function flagImplausible(jumps) {
     const weak = j.confidence === 'bassa' || j.verdict?.status === 'incoerenti';
     if (arcBad && weak) r.push(fin(j.gRatio) ? `il bacino non segue la caduta libera (curvatura ${j.gRatio.toFixed(2)}·g invece di 1)` : 'la traiettoria del bacino in volo non si adatta a una parabola');
     if (!fin(j.apexCm) && (j.issues || []).some((x) => x.code === 'footrise')) r.push('la traiettoria del baricentro non è adattabile e l\'altezza dei piedi in volo non corrisponde al tempo di volo');
-    if (fin(j.score) && j.score < 0.3) r.push(`affidabilità molto bassa (${(j.score * 100).toFixed(0)} %)`);
+    if (fin(j.score) && j.score < 0.3 && !j.lmOnly) r.push(`affidabilità molto bassa (${(j.score * 100).toFixed(0)} %)`);
     return r;
   };
   const rs = jumps.map(reasonsOf);

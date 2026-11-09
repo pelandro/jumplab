@@ -28,7 +28,7 @@ const COMMON = [
     'Non zoomare e non muovere il telefono durante il salto. Una sola persona nell\'inquadratura.',
   ]],
   ['Frame rate', [
-    '<b>Slow-motion 240 fps</b> (o 120): ogni fotogramma vale 4 ms (8 ms). La letteratura valida le app da smartphone a 240 fps; a 30 fps l\'errore su un salto da 35 cm è di diversi cm.',
+    '<b>Slow-motion 240 fps</b> (o 120): ogni fotogramma vale 4 ms (8 ms). La letteratura valida le app da smartphone a 240 fps. Nei nostri test sugli stessi salti ridotti a 120/60/50 fps il volo cambia di 1–8 ms; a 25–30 fps il tracciamento dei pixel spesso non è possibile e i landmark allungano il volo fino a 120–180 ms (+18–29 cm).',
     'Importa il video dalla libreria con <b>Formato: Attuale</b> (Opzioni nel selettore di Safari) per non ricodificarlo. Se è già rallentato a 30 fps, l\'app lo riconosce e propone la calibrazione (×4, ×8…).',
     '60 fps va bene per l\'altezza (±1 fotogramma ≈ ±3 cm a 35 cm) ma non per contatto e RSI.',
   ]],

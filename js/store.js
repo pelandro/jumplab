@@ -2,7 +2,7 @@
 
 const KEY = 'jumplab.v4';
 // Da aggiornare ad ogni modifica del codice: serve a capire a colpo d'occhio se l'app è aggiornata.
-export const VERSION = '4.8.0';
+export const VERSION = '4.9.0';
 export const BUILD = '2026-11-04';
 
 const DEFAULTS = () => ({

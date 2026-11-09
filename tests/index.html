@@ -254,6 +254,7 @@ for (const fps of [120, 240]) {
   { const j = base(); j.staticDeltaM = 0.10; j.apexAsymMs = -(0.01 / (g * 0.6)) * 1000; st(j); const j2 = base(); j2.staticDeltaM = 0.01; j2.apexAsymMs = -(0.01 / (g * 0.6)) * 1000; st(j2); ck('Validazione: misure di Δ che divergono (traiettoria 1 cm, statica 10 cm) → livello della stima integrata abbassato con motivo; concordi → nessun motivo', mid(j, 'integrato').contro.some((t) => /divergono/.test(t)) && !mid(j2, 'integrato').contro.some((t) => /divergono/.test(t)) && mid(j, 'integrato').score < mid(j2, 'integrato').score); }
   { const j = base(); j.geoCm = 58; const v = st(j); ck('Validazione: scala incoerente → «parziale», flag scala, i metodi sul tempo restano', v.status === 'parziale' && v.flags.some((f) => f.code === 'scala') && v.recommended === 'integrato' && mid(j, 'baricentro').level !== 'alta'); }
   { const j = base(); j.apexCm = NaN; j.apexT = NaN; j.geoCm = NaN; const v = st(j); ck('Validazione: baricentro non adattabile → solo volo, dichiarato', v.status === 'parziale' && v.flags.some((f) => f.code === 'solo_volo') && mid(j, 'parabola').nonDisponibile); }
+  { const j = base(); j.lmOnly = true; const v = st(j); ck('Validazione: istanti solo dai landmark → mai «coerenti» (i metodi dipendono dallo stesso stacco), con motivo', v.status !== 'coerenti' && v.flags.some((f) => f.code === 'eventi_landmark')); }
   // falsi voli (persona ferma): criteri, esclusione automatica solo con un altro volo plausibile, rispetto delle scelte dell'utente
   {
     const real = () => { const j = validateJump(base()); j.gRatio = 0.9; return j; };
@@ -278,6 +279,7 @@ for (const fps of [120, 240]) {
     const h3 = [heel(), main()]; h3.forEach((j) => { j.testType = 'free'; }); flagImplausible(h3);
     ck('Falsi voli: nei test liberi/serie (non a salto singolo) i voli brevi non si escludono per durata', !h3[0].excluded);
     const h4 = [heel()]; flagImplausible(h4); ck('Falsi voli: un colpo di tallone da solo (nessun altro volo) non viene escluso', !h4[0].excluded);
+    const lm = validateJump(base()); lm.gRatio = 0.9; lm.score = 0.2; lm.lmOnly = true; const lm2 = [lm, real()]; flagImplausible(lm2); ck('Falsi voli: salto vero con istanti solo dai landmark (affidabilità bassa per la fonte, non per la fisica) → non segnalato né escluso', !lm2[0].excluded && !lm2[0].issues.some((x) => x.code === 'val_falso'));
     const sl = validateJump(base()); sl.gRatio = 0.33; sl.timeScaleHint = 4; sl.score = 0.45; sl.confidence = 'bassa'; const g2 = [sl, real()]; flagImplausible(g2); ck('Falsi voli: video rallentato non calibrato (indizio di scala) con affidabilità ≥ 30 % → non escluso', !g2[0].excluded);
   }
   // fusione degli eventi dai pixel con i landmark di base: ripetibilità assente (passo > 10,5 ms) o solo di un evento non deve far fallire (bug trovato sul video reale)

@@ -72,6 +72,12 @@ export function assessRecording(meta, coarse, extra = {}) {
     if (Number.isFinite(sizeFrac)) {
       if (sizeFrac < 0.3) add('warn', 'size', `Atleta piccolo nel fotogramma (${Math.round(sizeFrac * 100)} % dell'altezza): avvicinati o usa lo zoom, ideale 50–70 %.`);
       else if (sizeFrac > 0.92) add('warn', 'size', `Atleta troppo grande nel fotogramma (${Math.round(sizeFrac * 100)} %): allontanati, in volo testa o piedi rischiano di uscire.`);
+      // pixel dell'atleta nel video (non la percentuale): conta per il tracciamento dei piedi. Misurato degradando 4 salti reali: atleta alto ~240 px →
+      // istanti entro 4 ms; ~120 px → fino a 8–18 ms. Sotto 250 px si avvisa (e l'incertezza degli istanti viene allargata nell'analisi).
+      const bodyPx = sizeFrac * meta.height;
+      if (Number.isFinite(bodyPx) && bodyPx < 250) add('warn', 'bodypx', `L'atleta occupa solo ~${Math.round(bodyPx)} pixel in altezza: piedi troppo piccoli per istanti precisi (errore misurato fino a 15–20 ms, cioè 3 cm). Avvicinati, usa lo zoom o una risoluzione maggiore.`);
+      else if (Number.isFinite(bodyPx) && bodyPx < 400) add('info', 'bodypx', `L'atleta occupa ~${Math.round(bodyPx)} pixel in altezza: sufficiente, ma con più pixel gli istanti sono più ripetibili.`);
+      extra.bodyPx = bodyPx;
     }
 
     // parti del corpo tagliate dal bordo
@@ -101,5 +107,5 @@ export function assessRecording(meta, coarse, extra = {}) {
 
   if ((extra.tracks || 1) > 1) add('info', 'people', `Rilevate ${extra.tracks} persone: è stata seguita quella che salta. Meglio una sola persona nell'inquadratura.`);
   const worst = items.some((i) => i.level === 'bad') ? 'bad' : items.some((i) => i.level === 'warn') ? 'warn' : 'ok';
-  return { items, level: worst, view: extra.view?.view || null, ratio: extra.view?.ratio ?? NaN, fps, footVis: extra.footVis ?? NaN, sizeFrac: extra.sizeFrac ?? NaN, detected, people: extra.tracks || 1 };
+  return { items, level: worst, view: extra.view?.view || null, ratio: extra.view?.ratio ?? NaN, fps, footVis: extra.footVis ?? NaN, sizeFrac: extra.sizeFrac ?? NaN, bodyPx: extra.bodyPx ?? NaN, detected, people: extra.tracks || 1 };
 }

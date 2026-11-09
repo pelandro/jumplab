@@ -614,3 +614,53 @@ Risultati dell'app (4.8) sui 4 salti: volo 34,2 / 39,5 / 39,3 / 39,2 cm; parabol
 - **Storico**: grafico con griglia, media, barre di incertezza e incertezza accanto a ogni valore; **report condivisibile** (immagine con risultato ± incertezza, accordo tra i metodi, tabella dei salti e avvertenza che non c'è confronto con pedana).
 - Test: 194 controlli, nessun KO (nuovi: finestra/landmark sbagliati, fusione degli eventi, curva del baricentro, grafici).
 
+## v4.9 — prova di robustezza su video reali degradati
+
+Richiesta: massima precisione e robustezza in condizioni reali diverse, con verifiche. Non avendo nuovi video con pedana, ho **degradato in modo controllato i due video reali** (salto 3 laterale, salto 1 frontale; atleta 181 cm / 76 kg; originali a 240 fps) e confrontato ogni variante con la stessa analisi del video pulito: il riferimento è il video pulito, non una pedana, quindi la prova misura la **stabilità** della misura al peggiorare della ripresa. Tutte le varianti sono state analizzate dall'app intera (posa, pixel, validazione) con il codice finale.
+
+### Prima: solo lo stimatore degli istanti dai pixel, 4 salti (fotogrammi reali alterati, stessi landmark di partenza)
+| Condizione | Variazione del volo (ms), salti 1–4 |
+|---|---|
+| buio (luminanza ×0,3), poco contrasto | ≤ 0,3 (la correlazione normalizzata li compensa) |
+| rumore σ≈12 | −1,0…+3,1 |
+| **buio + rumore** (poca luce reale) | **+17,6 / +0,4 / perso / +11,9** |
+| sfocato, risoluzione ½ | fino a 4–5 |
+| risoluzione ¼ (atleta ~120 px) | **+19,5** / −0,6 / −1,5 / perso |
+Correzione: **media 3×3 dei fotogrammi prima del tracciamento**. Con poca luce lo scarto scende a +1,2 / 0,0 / +2,3 / −2,0 ms; sul video pulito il volo cambia di non più di 0,7 ms; i due insiemi di landmark ora concordano entro 0,5–1,8 ms (prima 0,8–3,2). Medie 5×5 o zone più grandi peggioravano il caso pulito (fino a 4–6 ms) e non sono state adottate. La bassa risoluzione effettiva non si corregge: ora la qualità della ripresa **avvisa se l'atleta è alto meno di 250 px** nel video e l'incertezza degli istanti viene allargata (10 ms sotto 250 px, 3 ms sotto 400).
+
+### App intera su 26 varianti (scarto rispetto allo stesso video pulito)
+| Variante | Laterale: volo / integrata | Frontale: volo / integrata | Affidabilità data |
+|---|---|---|---|
+| buio (luminosità −22 %, contrasto ×0,6) | +1,5 ms / +0,6 cm | +2,8 ms / −0,1 cm | alta |
+| rumore forte (±22 livelli) | **+60 ms / +8,8 cm** | **−14 ms / −2,3 cm** | **media**, verdetto incoerente / parziale, ±8,5–9,9 cm |
+| risoluzione 360 px | +1,1 / +0,4 | +0,1 / −0,1 | alta |
+| sfocato (σ 2,5 px) | +0,3 / +0,4 | +1,4 / +0,2 | alta |
+| compressione forte (CRF 36) | +2,2 / +0,6 | −0,3 / −0,2 | alta |
+| atleta lontano (metà dimensione) | +4,0 / +0,6 | +1,0 / −0,3 | alta (avviso dimensione e luce) |
+| inclinazione 8° | −2,7 / +0,3 | **+33,8 ms / +3,5 cm** | alta, ±2,7 cm |
+| 120 fps | +3,7 / +1,1 | +1,4 / +0,1 | alta |
+| 60 fps | +1,7 / +0,1 | +2,0 / −0,1 | alta |
+| 50 fps costanti | +3,0 / +1,6 | +8,2 / +1,3 | alta |
+| 30 fps costanti | **+122 ms / +18,3 cm** | +11,5 ms / +1,8 cm | **bassa** (laterale, ±14,5 cm) / alta (frontale) |
+| 25 fps costanti | **+182 ms / +29 cm** | **+60 ms** (solo volo, +8 cm) | **bassa** |
+| ~22 fps (1 fotogramma su 8) | **+116 ms / +17 cm** | volo falso di 1,34 s | **bassa** |
+- **Da 50 fps in su, con luce scarsa, sfocatura, compressione, bassa risoluzione e atleta lontano**: volo entro −2,7…+8,2 ms, stima integrata entro −0,3…+1,6 cm dal video pulito.
+- **Sotto ~50 fps** il tracciamento dei pixel spesso non è possibile (verificato anche offline: a 120 e 60 fps scarto ≤ 2 ms dai 240 fps, a 30 fps 3 salti su 4 rifiutati) e si ricade sui landmark, che allungano il volo di 60–180 ms.
+- **Inclinazione 8° in ripresa frontale**: +34 ms (+3,5 cm), con la ripetibilità vicina al limite (26 ms); in laterale −2,7 ms. Causa non individuata: limite dichiarato, solo parzialmente coperto dall'incertezza (1,3σ).
+- **Rumore forte**: uno dei due istanti dai pixel viene rifiutato e si usa quello dei landmark (errore −14 e +60 ms).
+
+### Errori sicuri di sé trovati e corretti
+1. **Landmark a basso frame rate**: a ~22 fps l'app dava 55 cm invece di 38 con affidabilità **alta** e metodi **«coerenti»**. Volo, parabola e baricentro dipendono tutti dallo stesso istante di stacco, quindi concordano anche quando è sbagliato. Ora, con istanti solo dai landmark a qualsiasi frame rate: avviso, incertezza degli istanti di 35 ms o 2,5 fotogrammi (il maggiore), affidabilità al massimo «media» («bassa» sotto ~50 fps) e verdetto al massimo «parziale», con il motivo. Sui nostri video reali i landmark hanno sempre allungato il volo (+14…+217 ms; mediana ~100 ms sull'atleta 3); non si corregge con una costante perché sugli atleti 1–2 era +14…+30 ms.
+2. **Istanti misti** (uno dai pixel e uno dai landmark): stessa incertezza per l'istante dai landmark, avviso e affidabilità al massimo «media». Prima: −2,3 cm con affidabilità «alta».
+3. **Etichetta di falso volo**: un salto vero a 25–30 fps veniva segnalato «probabile falso rilevamento» solo perché l'affidabilità era bassa per colpa della fonte degli istanti. Ora quella regola non si applica in quel caso.
+
+### Tentativo scartato: istanti dalla caduta libera del baricentro
+Per i video sotto 50 fps ho provato a ricavare stacco e atterraggio dal punto in cui la traiettoria del baricentro (dai landmark) entra ed esce dalla parabola di caduta libera, un criterio fisico senza i piedi. Sugli 8 salti l'errore è di **+50…+120 ms allo stacco e −60…−180 ms all'atterraggio** a 240, 60 e 30 fps, perché vicino a stacco e atterraggio busto e arti non si muovono come il baricentro. Non integrato.
+
+### Fonti aggiunte
+- **Studio su My Jump 2 e Jumpo 2 (smartphone, PMC9884043, letto nel testo)**: altezza e **forza media** stimate valide; **velocità media e potenza** (stesso metodo di Samozino usato qui) con validità scarsa o impraticabile (r² < 0,001 e ≈ 0,64), con la velocità sottostimata. Nell'app velocità media e potenza sono ora etichettate «stima, validità scarsa», e il report usa la forza al loro posto.
+- **Rilevamento del contatto del piede da video monoculare** (Rempe et al. 2020; ContactVision; MMVP, CVPR 2024): i lavori trovati riportano accuratezze per fotogramma o parametri del cammino, non errori in ms contro pedana su salti. Nessun metodo pronto superiore al tracciamento dei pixel a 240 fps per questo uso.
+- Non raggiungibili da questo ambiente (non letti): pagine MDPI e PeerJ, tra cui lo studio 2024 sul «tempo di volo modificato» a 240 fps.
+
+Test: 196 controlli, nessun KO (nuovi: verdetto con istanti dai landmark, falsi voli con istanti dai landmark).
+

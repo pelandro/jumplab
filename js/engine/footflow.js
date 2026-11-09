@@ -165,8 +165,27 @@ export function flowEvents(gray, w, h, tc, kp, rough, opts = {}) {
  */
 const WINDOWS = [{ tdPre: 0.15, toPost: 0.12 }, { tdPre: 0.25, toPost: 0.20 }, { tdPre: 0.35, toPost: 0.16 }];
 
+/**
+ * Media 3×3 (separabile) di un fotogramma in grigi. Misurato su 4 salti reali degradati: con poca luce e rumore del sensore (luminanza ×0,3 e rumore σ≈6)
+ * il volo si spostava di 12–18 ms in 2 salti su 4 (e un atterraggio era perso); con questo filtro lo scarto resta entro 3 ms, e sul video pulito il volo
+ * cambia di non più di 0,6 ms. Una media 5×5 o una zona più grande peggiorano il caso pulito (fino a 4–6 ms).
+ */
+export function smooth3(g, w, h) {
+  const t = new Uint16Array(g.length), o = new Uint8Array(g.length);
+  for (let y = 0; y < h; y++) {
+    const r = y * w;
+    for (let x = 0; x < w; x++) t[r + x] = g[r + Math.max(0, x - 1)] + g[r + x] + g[r + Math.min(w - 1, x + 1)];
+  }
+  for (let y = 0; y < h; y++) {
+    const a = Math.max(0, y - 1) * w, b = y * w, c = Math.min(h - 1, y + 1) * w;
+    for (let x = 0; x < w; x++) o[b + x] = (t[a + x] + t[b + x] + t[c + x] + 4) / 9;
+  }
+  return o;
+}
+
 /** Elenco delle singole stime da eseguire (funzioni senza argomenti): permette al chiamante di cedere il controllo all'interfaccia tra una e l'altra. */
 export function planFlowRuns(gray, w, h, tc, kp, rough, opts = {}) {
+  if (opts.pre !== false) gray = gray.map((g) => smooth3(g, w, h));
   const diffs = []; for (let i = 1; i < tc.length; i++) if (tc[i] > tc[i - 1]) diffs.push(tc[i] - tc[i - 1]);
   const dt = median(diffs) || 1 / 30;
   const subs = dt > 0.0105 ? [[1, [0]]] : [[1, [0]], [2, [0, 1]], [3, [0, 1, 2]]];

@@ -57,6 +57,14 @@ Cloudflare Pages o Vercel come sito statico. Apri l'URL HTTPS su iPhone con Safa
 - Ripiego sul bacino quando i piedi non sono rilevati per brevi tratti.
 - Dettagli, misure e limiti in `VALIDAZIONE.md`.
 
+## Novità v4.9 (robustezza verificata su video reali degradati)
+
+- **Prova su 26 varianti dei video reali** (buio, rumore, sfocatura, compressione, bassa risoluzione, atleta lontano, inclinazione, 120/60/50/30/25 fps). Da 50 fps in su la stima integrata resta entro −0,3…+1,6 cm dal video pulito, salvo inclinazione 8° in frontale (+3,5 cm). Sotto ~50 fps la misura non è affidabile (fino a +29 cm) e **ora l'app lo dice**: affidabilità bassa, incertezza ampia, verdetto non più «coerenti».
+- **Poca luce**: filtro 3×3 prima del tracciamento dei piedi. Con buio + rumore lo scarto passa da 12–18 ms a ≤ 2,3 ms; sul video pulito il volo cambia di ≤ 0,7 ms.
+- **Errori sicuri di sé corretti**: istanti dai landmark o misti non danno più affidabilità alta; avviso se l'atleta è troppo piccolo in pixel; i salti veri a basso frame rate non vengono più etichettati come falsi voli.
+- Velocità media e potenza di Samozino ora sono **marcate come di validità scarsa**: lo studio PMC9884043 le trova poco valide rispetto alle pedane, a differenza della forza media.
+- Dettagli in `VALIDAZIONE.md` (v4.9). Il riferimento della prova è il video pulito, non una pedana.
+
 ## Novità v4.8 (istanti più ripetibili, risultati più leggibili)
 
 - **Istanti di stacco e atterraggio dai pixel robusti alla finestra di tracciamento**: prima il volo poteva cambiare di 25–80 ms (4–14 cm) spostando l'inizio della finestra, e nell'app un salto dava +12 ms rispetto allo stesso salto in uno script esterno. Ora raffinamento locale + mediana su 18 stime: scarto app–script da 7 a 2,5 ms (rms), nessun bias sul sintetico. **Non è dimostrato che sia più accurato di una pedana** (nessuna pedana): è più riproducibile.

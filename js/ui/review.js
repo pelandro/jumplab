@@ -227,9 +227,9 @@ export const review = {
       add('phases', 'Profondità dip', fmt.num(L(j.dipCm).v, 1), L(0).u, Number.isFinite(j.dipCm) && cmj);
       add('phases', 'Tempo al decollo', fmt.ms(j.timeToTakeoff), 'ms', Number.isFinite(j.timeToTakeoff) && cmj);
       add('phases', 'FT:CT (volo / tempo al decollo)', fmt.num(j.ftct, 2), '', Number.isFinite(j.ftct) && cmj);
-      add('phases', 'Velocità media di spinta', fmt.num(j.vMean, 2), 'm/s', Number.isFinite(j.vMean) && Number.isFinite(j.forceN));
+      add('power', 'Velocità media di spinta (stima, validità scarsa)', fmt.num(j.vMean, 2), 'm/s', Number.isFinite(j.vMean) && Number.isFinite(j.forceN));
       add('power', 'Forza media spinta', fmt.num(j.forceN, 0), 'N', Number.isFinite(j.forceN));
-      add('power', 'Potenza media', fmt.num(j.powerW, 0), 'W', Number.isFinite(j.powerW));
+      add('power', 'Potenza media (stima, validità scarsa)', fmt.num(j.powerW, 0), 'W', Number.isFinite(j.powerW));
       add('power', 'Forza media (per kg)', fmt.num(j.forceRel, 1), 'N/kg', Number.isFinite(j.forceRel));
       add('power', 'Potenza media (per kg)', fmt.num(j.powerRel, 1), 'W/kg', Number.isFinite(j.powerRel));
       add('power', 'Potenza di picco (Sayers 1999, equazione SJ)', fmt.num(j.sayersW, 0), 'W', Number.isFinite(j.sayersW));
@@ -260,7 +260,7 @@ export const review = {
         ...(G.tech.length ? [h('details', { class: 'acc msecd' }, h('summary', {}, h('span', {}, 'Dettagli tecnici e incertezze'), ic('chev')), h('div', { class: 'metrics', style: { marginTop: '8px' } }, ...G.tech))] : [])];
       const notes = [];
       if (Number.isFinite(j.rsi)) notes.push('RSI = altezza (da tempo di volo) / contatto: confronta atleti diversi con cautela (sovrastima sotto 1,0, sottostima sopra 1,0 rispetto al calcolo da velocità di stacco).');
-      if (Number.isFinite(j.forceN)) notes.push('Forza e potenza sono stime (Samozino 2008): dipendono da massa, altezza dell\'atleta e corsa di spinta misurata dal bacino. Utili per confrontare nel tempo, non come misura di laboratorio.');
+      if (Number.isFinite(j.forceN)) notes.push('Forza, velocità media e potenza sono stime (Samozino 2008) da altezza, massa e corsa di spinta. Nei confronti con pedane di app simili (240 fps) la forza media è risultata valida, mentre velocità media e potenza hanno validità scarsa (velocità sottostimata): usale solo per confronti nel tempo sullo stesso atleta, non come misure di laboratorio.');
       drawValidation(j);
       metricsBox.replaceChildren(...m, ...(notes.length ? [h('p', { class: 'tiny faint', style: { margin: '10px 0 0' } }, notes.join(' '))] : []));
       issuesBox.replaceChildren(...j.issues.map((x) => h('div', { class: 'issue ' + x.level, html: icon(x.level === 'info' ? 'info' : 'alert') }, h('div', {}, x.text))));

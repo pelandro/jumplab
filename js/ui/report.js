@@ -70,7 +70,7 @@ export async function makeReport(s, units = 'cm') {
     ['Tempo di volo', fin(bj?.T) ? `${Math.round(bj.T * 1000)}` : null, 'ms'],
     ['Altezza dal tempo di volo', fin(bj?.heightFlightCm) ? conv(bj.heightFlightCm).toFixed(1) : null, u],
     ['Velocità di stacco', fin(bj?.bestV0) ? bj.bestV0.toFixed(2) : fin(bj?.v0) ? bj.v0.toFixed(2) : null, 'm/s'],
-    [fin(bj?.rsi) ? 'RSI' : fin(bj?.dipCm) ? 'Profondità del dip' : 'Potenza media', fin(bj?.rsi) ? bj.rsi.toFixed(2) : fin(bj?.dipCm) ? conv(bj.dipCm).toFixed(1) : fin(bj?.powerW) ? Math.round(bj.powerW) + '' : null, fin(bj?.rsi) ? '' : fin(bj?.dipCm) ? u : 'W'],
+    [fin(bj?.rsi) ? 'RSI' : fin(bj?.dipCm) ? 'Profondità del dip' : 'Forza media (stima)', fin(bj?.rsi) ? bj.rsi.toFixed(2) : fin(bj?.dipCm) ? conv(bj.dipCm).toFixed(1) : fin(bj?.forceN) ? Math.round(bj.forceN) + '' : null, fin(bj?.rsi) ? '' : fin(bj?.dipCm) ? u : 'N'],
   ].filter((m) => m[1] != null);
   const cw = (W - 2 * pad - 24) / 2;
   metrics.forEach(([lab, v, un], i) => {
