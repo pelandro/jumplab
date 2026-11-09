@@ -4,11 +4,22 @@
 const fin = Number.isFinite;
 const n1 = (v) => v.toFixed(1).replace('.', ',');
 
-/** Intervallo al 95 % (±2σ) detto a parole. */
-export function rangeText(v, s, u) {
+/**
+ * Le due incertezze, dette a parole.
+ *  · Ripetibilità (rep): quanto cambia il valore rianalizzando lo stesso salto; misurata dai dati del salto. È quella che conta per seguire i progressi
+ *    con lo stesso metodo, insieme alla variabilità della ripresa (0,65 cm, misurata degradando video reali: luce, distanza, risoluzione, fps ≥ 50).
+ *  · Accuratezza rispetto a una pedana (s, ±2σ): include errori sistematici stimati e non verificati (definizione del contatto col suolo, quanto più
+ *    in basso si atterra). Non si può ridurre senza un riferimento.
+ */
+export function rangeText(v, s, u, rep = NaN) {
   if (!fin(v) || !fin(s) || s <= 0) return null;
-  return `Con buona probabilità (95 %) il valore vero è tra ${n1(v - 2 * s)} e ${n1(v + 2 * s)} ${u}.`;
+  const acc = `Rispetto a una pedana (stima non ancora verificata) il valore vero è con buona probabilità tra ${n1(v - 2 * s)} e ${n1(v + 2 * s)} ${u}.`;
+  if (!fin(rep)) return acc;
+  return `Precisione: ±${n1(rep)} ${u} (ripetendo l'analisi dello stesso salto il valore cambia di circa questo). ${acc}`;
 }
+
+/** Variabilità della ripresa tra una sessione e l'altra (luce, distanza, risoluzione, frame rate ≥ 50): misurata su video reali degradati. */
+export const SETUP_CM = 0.65;
 
 /** Perché l'affidabilità è alta, media o bassa: i motivi principali, senza gergo. */
 export function reliabilityText(j, { uncal = false } = {}) {
@@ -32,21 +43,24 @@ export function reliabilityText(j, { uncal = false } = {}) {
 /**
  * Confronto con le sessioni precedenti dello stesso atleta e dello stesso test. Una differenza conta come reale solo se supera ~2 volte l'incertezza
  * combinata delle due misure (criterio prudente: parte dell'errore è comune alle due misure e si annullerebbe).
- * past: [{ date, best, unc }] ordinate dalla più recente; h, s: valore e incertezza (1σ) di questa misura.
+ * past: [{ date, best, unc, rep }] ordinate dalla più recente; h, s, rep: valore, incertezza (1σ) e ripetibilità di questa misura.
  */
-export function historyContext(past, h, s, u, conv = (x) => x) {
+export function historyContext(past, h, s, u, conv = (x) => x, rep = NaN) {
   if (!fin(h)) return [];
   if (!past.length) return [{ tone: 'info', text: 'È la prima misura di questo test per questo atleta: le prossime verranno confrontate con questa.' }];
   const out = [];
-  const real = (d, s2) => Math.abs(d) > 2 * Math.hypot(fin(s) ? s : 1.5, fin(s2) ? s2 : 1.5);
+  // differenza reale se oltre 2 volte l'incertezza del confronto: con lo stesso metodo gli errori sistematici sono in buona parte comuni, quindi
+  // si usa la ripetibilità più la variabilità della ripresa; se manca (sessioni vecchie, istanti dai landmark) si usa l'incertezza completa
+  const sCmp = (p) => (fin(rep) && fin(p.rep) ? Math.hypot(rep, p.rep, SETUP_CM) : Math.hypot(fin(s) ? s : 1.5, fin(p.unc) ? p.unc : 1.5));
+  const real = (d, p) => Math.abs(d) > 2 * sCmp(p);
   const date = (t) => new Date(t).toLocaleDateString('it-IT', { day: 'numeric', month: 'short' });
   const best = past.reduce((a, b) => (b.best > a.best ? b : a));
   const d = h - best.best;
-  if (d > 0) out.push({ tone: real(d, best.unc) ? 'good' : 'info', text: `Nuovo record personale: +${n1(conv(d))} ${u} sul precedente (${date(best.date)})${real(d, best.unc) ? '.' : ', ma la differenza è entro l’errore di misura.'}` });
+  if (d > 0) out.push({ tone: real(d, best) ? 'good' : 'info', text: `Nuovo record personale: +${n1(conv(d))} ${u} sul precedente (${date(best.date)})${real(d, best) ? ', un miglioramento reale.' : ', ma la differenza è entro l’errore di misura.'}` });
   else out.push({ tone: 'info', text: `Record personale: ${n1(conv(best.best))} ${u} (${date(best.date)}), ${n1(conv(-d))} ${u} sopra questa misura.` });
   const last = past[0];
   if (last !== best || d <= 0) {
-    const dl = h - last.best, r = real(dl, last.unc);
+    const dl = h - last.best, r = real(dl, last);
     out.push({ tone: r ? (dl > 0 ? 'good' : 'bad') : 'info', text: `Rispetto all'ultima volta (${date(last.date)}): ${dl >= 0 ? '+' : '−'}${n1(conv(Math.abs(dl)))} ${u}, ${r ? (dl > 0 ? 'un miglioramento reale' : 'un calo reale') : 'differenza entro l’errore di misura (non distinguibile da una misura uguale)'}.` });
   }
   return out;

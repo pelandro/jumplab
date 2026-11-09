@@ -197,6 +197,10 @@ export function validateJump(j) {
     recommended = rank[P.level] > rank[F.level] ? 'parabola' : 'volo';
     why = recommended === 'volo' ? 'metodo standard, confermato dagli altri' : 'livello di affidabilità superiore al tempo di volo, confermato dagli altri';
   }
+  // Ripetibilità dell'altezza: quanto cambierebbe rianalizzando lo stesso salto (dispersione degli istanti) più 0,2 cm per i landmark di partenza
+  // (Heavy contro Full: 0,5–1,8 ms). NON include gli errori sistematici (definizione del contatto, Δ), che sono comuni a tutte le misure con lo
+  // stesso metodo e quindi si annullano in buona parte confrontando lo stesso atleta nel tempo, ma non rispetto a una pedana.
+  j.repCm = fin(j.repT) && !j.lmOnly ? Math.hypot((G * j.T * j.repT) / 4 * 100, 0.2) : NaN;
   // istanti solo dai landmark: volo, parabola e baricentro dipendono dallo stesso istante di stacco e concordano anche quando è sbagliato (video ridotto a
   // ~22 fps: tutti e quattro i metodi a 55–58 cm contro 38 cm). La concordanza non è una prova: al massimo «parziale».
   if (j.lmOnly && status === 'coerenti') {

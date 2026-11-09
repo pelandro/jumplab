@@ -207,17 +207,17 @@ export const review = {
       const integ = j.hUseSource === 'integrata';
       const sig = integ ? j.bestUncCm : j.uncCm;
       const past = S.sessions.filter((x) => x.athleteId === ath?.id && x.testType === session.params.testType && fin(x.best))
-        .sort((a, b) => b.date - a.date).map((x) => { const bj = (x.jumps || []).reduce((a, q) => (!a || q.heightCm > a.heightCm ? q : a), null); return { date: x.date, best: x.best, unc: bj ? (bj.hSource === 'integrata' && fin(bj.bestUncCm) ? bj.bestUncCm : bj.uncCm) : NaN }; });
-      const ctxItems = uncal(j) || j.excluded ? [] : historyContext(past, hd(j), sig, hh.u, (x) => L(x).v);
+        .sort((a, b) => b.date - a.date).map((x) => { const bj = (x.jumps || []).reduce((a, q) => (!a || q.heightCm > a.heightCm ? q : a), null); return { date: x.date, best: x.best, unc: bj ? (bj.hSource === 'integrata' && fin(bj.bestUncCm) ? bj.bestUncCm : bj.uncCm) : NaN, rep: bj ? bj.repCm : NaN }; });
+      const ctxItems = uncal(j) || j.excluded ? [] : historyContext(past, hd(j), sig, hh.u, (x) => L(x).v, j.repCm);
       hero.replaceChildren(...[
         h('div', { class: 'hero' },
           h('div', {}, h('div', { class: 'small muted', style: { fontWeight: 700, marginBottom: '6px' } }, 'ALTEZZA DEL SALTO'),
             // video rallentato non calibrato: il numero sarebbe assurdo (es. 800 cm) e potrebbe essere letto o salvato per errore
             uncal(j) ? h('div', { class: 'big num' }, '—', h('small', {}, 'calibra il tempo'))
               : h('div', { class: 'big num' }, hh.v.toFixed(1), h('small', {}, hh.u)),
-            fin(sig) && !uncal(j) ? h('div', { class: 'small muted num', style: { marginTop: '6px' } }, `± ${L(sig).v.toFixed(1)} ${hh.u}`) : null),
+            fin(sig) && !uncal(j) ? h('div', { class: 'small muted num', style: { marginTop: '6px' } }, fin(j.repCm) ? `precisione ±${L(j.repCm).v.toFixed(1)} ${hh.u}` : `± ${L(sig).v.toFixed(1)} ${hh.u}`) : null),
           h('div', { style: { textAlign: 'right' } }, h('span', { class: 'conf ' + j.confidence }, 'Affidabilità ' + j.confidence))),
-        !uncal(j) && fin(sig) ? h('p', { class: 'small', style: { margin: '12px 0 0', lineHeight: 1.5 } }, rangeText(L(hd(j)).v, L(sig).v, hh.u)) : null,
+        !uncal(j) && fin(sig) ? h('p', { class: 'small', style: { margin: '12px 0 0', lineHeight: 1.5 } }, rangeText(L(hd(j)).v, L(sig).v, hh.u, fin(j.repCm) ? L(j.repCm).v : NaN)) : null,
         h('p', { class: 'small muted', style: { margin: '6px 0 0', lineHeight: 1.5 } }, reliabilityText(j, { uncal: uncal(j) })),
         ...ctxItems.map((c) => h('div', { class: 'ctx ' + c.tone }, c.text)),
         j.excluded ? h('div', { class: 'ctx bad' }, 'Questo volo è escluso dal risultato della sessione.') : null,
@@ -392,7 +392,7 @@ export const review = {
         bestCm: j.bestCm, bestUncCm: j.bestUncCm, bestV0: j.bestV0, bestV0Unc: j.bestV0Unc,
         landDeltaCm: j.landDeltaCm, landDeltaUncCm: j.landDeltaUncCm, landDeltaMeasCm: j.landDeltaMeasCm, landDeltaStaticCm: j.landDeltaStaticCm, deltaTension: j.deltaTension,
         bestW: j.bestW, bestWStatic: j.bestWStatic,
-        heightCorrCm: j.heightCorrCm, apexCm: j.apexCm, apexUncCm: j.apexUncCm, apexAsymMs: j.apexAsymMs, apexProxy: j.apexProxy, apexSpreadCm: j.apexSpreadCm, apexV0: j.apexV0, apexV0Unc: j.apexV0Unc,
+        heightCorrCm: j.heightCorrCm, repCm: j.repCm, apexCm: j.apexCm, apexUncCm: j.apexUncCm, apexAsymMs: j.apexAsymMs, apexProxy: j.apexProxy, apexSpreadCm: j.apexSpreadCm, apexV0: j.apexV0, apexV0Unc: j.apexV0Unc,
         geoCm: j.geoCm, geoUncCm: j.geoUncCm, ballisticCm: j.ballisticCm, riseFromStartCm: j.riseFromStartCm, riseFromStartUncCm: j.riseFromStartUncCm, takeoffRiseCm: j.takeoffRiseCm,
         contact: j.contact, rsi: j.rsi, rsiFlight: j.rsiFlight, rsiMod: j.rsiMod, dipCm: j.dipCm, timeToTakeoff: j.timeToTakeoff, hpoM: j.hpoM, phaseProxy: j.phaseProxy,
         v0: j.v0, vMean: j.vMean, boxCm: j.boxCm, forceN: j.forceN, powerW: j.powerW, sayersW: j.sayersW, ftct: j.ftct, forceRel: j.forceRel, powerRel: j.powerRel, sayersRel: j.sayersRel,

@@ -57,6 +57,11 @@ Cloudflare Pages o Vercel come sito statico. Apri l'URL HTTPS su iPhone con Safa
 - Ripiego sul bacino quando i piedi non sono rilevati per brevi tratti.
 - Dettagli, misure e limiti in `VALIDAZIONE.md`.
 
+## Novità v4.11 (precisione e accuratezza separate)
+
+- Ogni salto mostra la **precisione** (quanto cambia il valore rianalizzando lo stesso salto, misurata: tipicamente ±0,3–0,4 cm) separata dall'**intervallo rispetto a una pedana** (±3–3,5 cm al 95 %), che è una stima degli errori sistematici non ancora verificata.
+- I **confronti tra sessioni** usano la precisione più la variabilità della ripresa (0,65 cm, misurata su 18 varianti di video reali): un miglioramento di ~2 cm ora risulta reale, prima serviva ~5 cm. Le sessioni salvate con versioni precedenti usano ancora il criterio prudente.
+
 ## Novità v4.10 (risultati comprensibili da chiunque)
 
 - **Il risultato si legge in parole**: altezza, intervallo in cui sta con buona probabilità il valore vero, perché la misura è affidabile o no, e confronto con le volte precedenti dello stesso test, con l'indicazione se la differenza è reale o entro l'errore di misura.

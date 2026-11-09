@@ -14,6 +14,7 @@ rilevamento e misura, <b>non</b> la qualità del modello di postura su video rea
 <script type="module">
 import { validateJump, flagSeries, flagImplausible } from '../js/engine/validate.js';
 import { agreementPlot, velocityPlot } from '../js/ui/viz.js';
+import { historyContext } from '../js/ui/explain.js';
 import { integrate, PRIOR } from '../js/engine/fusion.js';
 import { analyze, remeasure, jumpCurve, apexEstimate, summarizeSeries, heightFromFlight, samozino, sayersPeakPower, rsiOf } from '../js/engine/jumps.js';
 import { detectView, assessRecording } from '../js/engine/quality.js';
@@ -239,6 +240,19 @@ for (const fps of [120, 240]) {
   const curve = { t: Array.from({ length: 200 }, (_, i) => i * 0.01), v: Array.from({ length: 200 }, (_, i) => 2.7 - 9.80665 * (i * 0.01 - 1)) };
   const vs = velocityPlot(curve, { to: 1.0, td: 1.55, onsetT: 0.2, bottomT: 0.6, bestV0: 2.7 });
   chk('Grafico della velocità: presente e senza NaN', vs.length > 200 && !/NaN|undefined|Infinity/.test(vs) ? 1 : 0, 1, 0);
+}
+
+// ---- Confronto con le sessioni precedenti: ripetibilità + variabilità della ripresa se note, altrimenti incertezza completa ----
+{
+  const ok = (name, cond) => { if (!cond) totalFail++; fRows.push(`<tr><td>${name}</td><td></td><td></td><td class="${cond ? 'ok' : 'bad'}">${cond ? 'OK' : 'KO'}</td></tr>`); };
+  const past = [{ date: Date.now() - 864e5, best: 38.0, unc: 1.6, rep: 0.4 }];
+  const a = historyContext(past, 40.5, 1.6, 'cm', (x) => x, 0.4); // +2,5 cm: oltre 2·√(0,4²+0,4²+0,65²) ≈ 1,7 cm
+  ok('Confronto: +2,5 cm con precisione ±0,4 → miglioramento reale', a.some((c) => c.tone === 'good'));
+  const b = historyContext(past, 39.2, 1.6, 'cm', (x) => x, 0.4); // +1,2 cm: entro
+  ok('Confronto: +1,2 cm con precisione ±0,4 → entro l\'errore', !b.some((c) => c.tone === 'good'));
+  const c = historyContext([{ ...past[0], rep: NaN }], 40.5, 1.6, 'cm', (x) => x, 0.4); // senza ripetibilità della sessione vecchia: incertezza completa (2·2,26 = 4,5)
+  ok('Confronto: sessione senza ripetibilità salvata → criterio prudente (incertezza completa)', !c.some((x) => x.tone === 'good'));
+  ok('Confronto: prima misura → nessun confronto inventato', historyContext([], 40, 1.5, 'cm').length === 1);
 }
 
 // ---- Validazione ibrida dei tre metodi (volo / baricentro nello spazio / parabola) ----

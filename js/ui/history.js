@@ -72,7 +72,7 @@ export const history = {
           h('div', { class: 'thumb', style: { backgroundImage: s.thumb ? `url(${s.thumb})` : '' } }),
           h('div', { class: 'grow' }, h('div', { style: { fontWeight: 700 } }, TEST_TYPES[s.testType]?.label || s.testType, s.leg && s.leg !== 'both' ? ` · ${s.leg === 'left' ? 'sx' : 'dx'}` : ''),
             h('div', { class: 'small muted' }, fmt.date(s.date), ' · ', s.athleteName, ' · ', s.jumps.length, s.jumps.length === 1 ? ' salto' : ' salti')),
-          h('div', { class: 'val num' }, L(s.best).v.toFixed(1), h('small', {}, ' ' + L(0).u), (() => { const u = uncOfJump(bestJump(s)); return Number.isFinite(u) ? h('div', { class: 'tiny faint', style: { fontWeight: 600, textAlign: 'right' } }, '± ' + L(u).v.toFixed(1)) : null; })())))),
+          h('div', { class: 'val num' }, L(s.best).v.toFixed(1), h('small', {}, ' ' + L(0).u), (() => { const bj = bestJump(s), u = Number.isFinite(bj?.repCm) ? bj.repCm : uncOfJump(bj); return Number.isFinite(u) ? h('div', { class: 'tiny faint', style: { fontWeight: 600, textAlign: 'right' } }, '± ' + L(u).v.toFixed(1)) : null; })())))),
         h('button', { class: 'btn block', style: { marginTop: '16px' }, onclick: () => downloadFile('jumplab.csv', csvRows(list)) }, ic('download'), 'Esporta CSV'));
     };
     const aSel = h('select', { class: 'input', style: { minHeight: '40px', flex: 1 }, onchange: (e) => { fAth = e.target.value; draw(); } },
@@ -167,11 +167,11 @@ function jumpCard(j, i, L, s, open) {
 function heroCtx(s, S, L) {
   const bj = bestJump(s), u = uncOfJump(bj), unit = L(0).u;
   const past = S.sessions.filter((x) => x.id !== s.id && x.athleteId === s.athleteId && x.testType === s.testType && x.date < s.date && Number.isFinite(x.best))
-    .sort((a, b) => b.date - a.date).map((x) => ({ date: x.date, best: x.best, unc: uncOfJump(bestJump(x)) }));
+    .sort((a, b) => b.date - a.date).map((x) => ({ date: x.date, best: x.best, unc: uncOfJump(bestJump(x)), rep: bestJump(x)?.repCm }));
   const out = [];
-  const r = Number.isFinite(u) ? rangeText(L(s.best).v, L(u).v, unit) : null;
+  const r = Number.isFinite(u) ? rangeText(L(s.best).v, L(u).v, unit, Number.isFinite(bj?.repCm) ? L(bj.repCm).v : NaN) : null;
   if (r) out.push(h('p', { class: 'small', style: { margin: '12px 0 0', lineHeight: 1.5 } }, r));
-  for (const c of historyContext(past, s.best, u, unit, (x) => L(x).v)) out.push(h('div', { class: 'ctx ' + c.tone }, c.text));
+  for (const c of historyContext(past, s.best, u, unit, (x) => L(x).v, bj?.repCm)) out.push(h('div', { class: 'ctx ' + c.tone }, c.text));
   return out;
 }
 
@@ -190,7 +190,7 @@ function detail(root, app, id) {
       h('button', { class: 'iconbtn', onclick: async () => { if (await confirmSheet({ title: 'Eliminare la sessione?', text: 'L’operazione non si può annullare.', ok: 'Elimina', danger: true })) { store.removeSession(s.id); app.go('#/history'); } }, html: icon('trash') })),
     s.thumb ? h('div', { class: 'stagebox', style: { height: '150px', marginBottom: '12px' } }, h('img', { src: s.thumb, style: { height: '100%' } })) : null,
     h('div', { class: 'card' }, h('div', { class: 'small muted', style: { fontWeight: 700 } }, 'MIGLIOR SALTO'),
-      h('div', { class: 'hero' }, h('div', {}, h('div', { class: 'big num' }, L(s.best).v.toFixed(1), h('small', {}, L(0).u)), (() => { const j = bestJump(s), u = uncOfJump(j); return Number.isFinite(u) ? h('div', { class: 'small muted num', style: { marginTop: '4px' } }, `± ${L(u).v.toFixed(1)} ${L(0).u}`) : null; })()),
+      h('div', { class: 'hero' }, h('div', {}, h('div', { class: 'big num' }, L(s.best).v.toFixed(1), h('small', {}, L(0).u)), (() => { const j = bestJump(s), u = uncOfJump(j); return Number.isFinite(j?.repCm) ? h('div', { class: 'small muted num', style: { marginTop: '4px' } }, `precisione ±${L(j.repCm).v.toFixed(1)} ${L(0).u}`) : Number.isFinite(u) ? h('div', { class: 'small muted num', style: { marginTop: '4px' } }, `± ${L(u).v.toFixed(1)} ${L(0).u}`) : null; })()),
         bestJump(s)?.confidence ? h('span', { class: 'conf ' + bestJump(s).confidence }, 'Affidabilità ' + bestJump(s).confidence) : null),
       ...heroCtx(s, S, L)),
     h('div', { class: 'card', style: { marginTop: '12px', overflowX: 'auto' } },

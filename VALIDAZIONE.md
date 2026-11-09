@@ -672,3 +672,20 @@ Nessun cambiamento ai calcoli dell'altezza, salvo una correzione: la regola dei 
 - **Valori tolti dalla vista** per validità scarsa o mancanza di fondamento: velocità media e potenza (Samozino; PMC9884043), potenza di picco di Sayers (equazione ricavata per lo squat jump), velocità di stacco dal solo tempo di volo (doppione), altezza corretta per postura (sostituita dalla stima integrata). Restano nel CSV.
 - Test: 197 controlli, nessun KO.
 
+## v4.11 — precisione e accuratezza separate
+
+Domanda: «±3–3,5 cm al 95 % è un intervallo largo: si può ridurre l'errore?». Scomposizione dell'incertezza dichiarata sui due salti di riferimento (laterale / frontale):
+| Componente | Laterale | Frontale | Natura |
+|---|---|---|---|
+| Istanti di stacco e atterraggio (σ_T 7,7 / 10,3 ms) | ±1,04 cm | ±1,31 cm | per lo più il minimo di 5 ms per istante sulla **definizione del contatto** (pixel contro soglia di forza di una pedana): sistematico, non misurabile senza pedana |
+| Baricentro più basso all'atterraggio (σ_Δ 2,3 / 2,5 cm) | ±1,12 cm | ±1,22 cm | prior di popolazione + misura dalla traiettoria: sistematico per lo stesso atleta |
+| **Dichiarata (1σ)** | **±1,53 cm** | **±1,79 cm** | |
+| **Ripetibilità misurata degli istanti** (18 stime: 1,6/4,7 e 3,1/7,9 ms tra 10° e 90° percentile) | **±0,27 cm** | **±0,43 cm** | casuale |
+Altri dati sulla ripetibilità: app contro script sugli stessi 4 salti 2,5 ms (rms ≈ 0,4 cm); due insiemi di landmark 0,5–1,8 ms; 18 varianti di ripresa a ≥ 50 fps (escluse inclinazione frontale e rumore forte): scarto rms **0,65 cm** sulla stima integrata.
+
+Conclusione: la parte **casuale** dell'errore è già piccola (±0,3–0,4 cm). L'intervallo largo viene da errori **sistematici stimati** (definizione del contatto, quanto più in basso si atterra) che **non posso ridurre in modo onesto senza un riferimento**: abbassare quei margini senza misure vorrebbe dire dichiarare un'accuratezza non dimostrata.
+- **Cosa cambia nell'app**: ogni salto mostra la **precisione** (ripetibilità: σ degli istanti dalle 18 stime, propagata come g·T·σ_T/4, più 0,2 cm per i landmark di partenza; non calcolata con istanti dai landmark) e, separato, l'**intervallo rispetto a una pedana** (±2σ dell'incertezza completa, dichiarato come stima).
+- **Confronti nel tempo**: differenza reale se > 2·√(prec₁² + prec₂² + 0,65²). Il criterio vale **con lo stesso metodo**: gli errori sistematici sono in buona parte comuni (stessa definizione del contatto, stesso atleta), non del tutto se cambia molto il modo di atterrare o l'inquadratura. Con precisioni di ±0,4 cm la soglia è ≈ 1,7 cm (prima ≈ 4,5–5 cm). Sessioni senza precisione salvata (versioni precedenti, istanti dai landmark): criterio prudente con l'incertezza completa.
+- **Cosa servirebbe per ridurre l'intervallo rispetto a una pedana**: qualche salto filmato a 240 fps contemporaneamente su una pedana di forza (o su un sistema validato come una piattaforma a contatto con verifica). Con 10–20 salti si potrebbero misurare il ritardo sistematico degli istanti e la correzione di Δ e ridurre i margini con dati veri.
+- Test: 201 controlli, nessun KO (nuovi: criteri di confronto).
+

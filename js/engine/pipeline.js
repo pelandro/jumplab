@@ -541,6 +541,8 @@ function applyFlowInfo(session) {
       }
       j.uncCm = ((9.80665 * j.T * j.uncT) / 4) * 100;
       j.flow = { toLm, tdLm, dTo: to - toLm, dTd: td - tdLm, src: { to: srcTo, td: srcTd }, pixelBoth: both };
+      // ripetibilità misurata (non l'accuratezza): dispersione delle 18 stime di ciascun istante, intervallo 10°–90° percentile ≈ 2,56σ
+      j.repT = both && Number.isFinite(info.repTo) && Number.isFinite(info.repTd) ? Math.hypot(info.repTo, info.repTd) / 2.56 : NaN;
       const big = Math.max(Math.abs(to - toLm), Math.abs(td - tdLm));
       if (big > Math.max(0.03, 3 * dtc)) {
         j.issues.push({ level: 'info', code: 'flowdiff', text: `Il tracciamento dei pixel del piede e i landmark del modello differiscono (stacco ${((to - toLm) * 1000).toFixed(0)} ms, atterraggio ${((td - tdLm) * 1000).toFixed(0)} ms): usati i pixel, che seguono il piede reale.` });

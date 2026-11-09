@@ -62,7 +62,7 @@ export async function makeReport(s, units = 'cm') {
   text(conv(s.best).toFixed(1), pad + 36, y + 190, { size: 150, weight: 800, color: ACC });
   ctx.font = `800 150px ${FONT}`; const vw = ctx.measureText(conv(s.best).toFixed(1)).width;
   text(u, pad + 36 + vw + 14, y + 190, { size: 54, weight: 700, color: MUT });
-  if (fin(unc)) text(`± ${conv(unc).toFixed(1)} ${u} · valore vero tra ${conv(s.best - 2 * unc).toFixed(1)} e ${conv(s.best + 2 * unc).toFixed(1)} ${u} (95 %)`, pad + 40, y + 240, { size: 28, weight: 600, color: TXT });
+  if (fin(unc)) text(`${fin(bj?.repCm) ? `precisione ±${conv(bj.repCm).toFixed(1)} ${u} · ` : ''}rispetto a una pedana tra ${conv(s.best - 2 * unc).toFixed(1)} e ${conv(s.best + 2 * unc).toFixed(1)} ${u} (stima)`, pad + 40, y + 240, { size: 27, weight: 600, color: TXT });
   if (bj?.confidence) { const lab = 'Affidabilità ' + bj.confidence, col = { alta: '#7bf0a4', media: '#ffc15e', bassa: '#ff6b6b' }[bj.confidence] || MUT; ctx.font = `800 26px ${FONT}`; const w = ctx.measureText(lab).width + 44; rrect(ctx, W - pad - 36 - w, y + 36, w, 54, 27); ctx.fillStyle = 'rgba(255,255,255,0.05)'; ctx.fill(); ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.stroke(); text(lab, W - pad - 36 - w / 2, y + 73, { size: 26, weight: 800, color: col, align: 'center' }); }
   y += 270 + 26;
   // metriche principali
@@ -105,7 +105,7 @@ export async function makeReport(s, units = 'cm') {
   });
   y += 70 + jumps.length * 58 + 16 + 34;
   // nota (a capo automatico)
-  const note = 'Misura da video: tempo di volo dai pixel del piede e baricentro dalla posa; nessuna pedana è stata usata. L\u2019incertezza è 1σ calcolata dai dati; l\u2019errore assoluto rispetto a una pedana non è stato verificato.';
+  const note = 'Misura da video: tempo di volo dai pixel del piede e baricentro dalla posa; nessuna pedana è stata usata. La precisione è quanto cambia il valore rianalizzando lo stesso salto; l\u2019intervallo rispetto a una pedana è una stima non ancora verificata.';
   ctx.font = `400 22px ${FONT}`;
   let line = '', ny = y;
   for (const wd of note.split(' ')) { const t = line ? line + ' ' + wd : wd; if (ctx.measureText(t).width > W - 2 * pad && line) { text(line, pad, ny, { size: 22, color: FAINT }); ny += 32; line = wd; } else line = t; }
